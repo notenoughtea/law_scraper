@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  law-scraper-cron:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: law-scraper-cron
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    working_dir: /app
+    command: ./bin/cron
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
