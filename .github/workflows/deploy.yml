@@ -1,0 +1,133 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:  # Позволяет запускать вручную
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Run tests
+        working-directory: ./scraper
+        run: |
+          go test -v ./...
+
+      - name: Build
+        working-directory: ./scraper
+        run: |
+          go build -v ./cmd/cron/main.go
+          go build -v ./cmd/scraper/main.go
+
+  deploy:
+    name: Deploy to Server
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Create .env file
+        run: |
+          cat > .env << EOF
+          API_URL=${{ secrets.API_URL }}
+          PAGES_STORAGE=./data/pages.json
+          MATCHED_DIR=./data/matched
+          KEYWORDS=${{ secrets.KEYWORDS }}
+          TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID=${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_SEND_AS_DOCUMENT=true
+          CRON_SCHEDULE=${{ secrets.CRON_SCHEDULE }}
+          RUN_ON_START=false
+          EOF
+
+      - name: Copy files to server
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+        run: |
+          # Создаем директорию на сервере
+          ssh $SERVER_USER@$SERVER_HOST "mkdir -p /opt/law_scraper"
+          
+          # Копируем файлы
+          scp -r ./* $SERVER_USER@$SERVER_HOST:/opt/law_scraper/
+          
+          # Копируем .env
+          scp .env $SERVER_USER@$SERVER_HOST:/opt/law_scraper/.env
+
+      - name: Deploy with Docker Compose
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+        run: |
+          ssh $SERVER_USER@$SERVER_HOST << 'ENDSSH'
+            cd /opt/law_scraper
+            
+            # Останавливаем старые контейнеры
+            docker-compose down || true
+            
+            # Удаляем старые образы
+            docker-compose rm -f || true
+            
+            # Собираем новый образ
+            docker-compose build
+            
+            # Запускаем контейнеры
+            docker-compose up -d
+            
+            # Показываем статус
+            docker-compose ps
+            
+            # Показываем последние логи
+            docker-compose logs --tail=50
+          ENDSSH
+
+      - name: Verify deployment
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+        run: |
+          sleep 10
+          ssh $SERVER_USER@$SERVER_HOST << 'ENDSSH'
+            cd /opt/law_scraper
+            if docker-compose ps | grep -q "Up"; then
+              echo "✅ Deployment successful!"
+              docker-compose ps
+            else
+              echo "❌ Deployment failed!"
+              docker-compose logs --tail=100
+              exit 1
+            fi
+          ENDSSH
+
+      - name: Notify on success
+        if: success()
+        run: |
+          echo "🎉 Deployment to ${{ secrets.SERVER_HOST }} completed successfully!"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "❌ Deployment to ${{ secrets.SERVER_HOST }} failed!"
+

@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  law-scraper-cron:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: law-scraper-cron
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    working_dir: /app
+    command: ./bin/cron
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "cron"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+

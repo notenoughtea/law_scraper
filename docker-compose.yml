@@ -19,3 +19,21 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  law-scraper-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: law-scraper-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    working_dir: /app
+    command: ./bin/bot
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+

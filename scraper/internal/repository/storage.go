@@ -49,47 +49,31 @@ func LoadPages() ([]dto.ListResponse, error) {
 
 // FileURLWithKeywords содержит URL файла и найденные в нём ключевые слова
 type FileURLWithKeywords struct {
-	URL      string
-	Keywords []string
-	PubDate  string
+	URL         string
+	Keywords    []string
+	PubDate     string
+	Title       string
+	Description string
 }
 
-// SaveFileURLs сохраняет список URL-ов файлов с найденными словами в текстовом файле
-// Формат: URL | keywords | pubDate
+// SaveFileURLs сохраняет список URL-ов файлов с найденными словами в JSON файле
 func SaveFileURLs(files []FileURLWithKeywords) error {
 	dir := config.GetMatchedDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	path := filepath.Join(dir, "file_urls.txt")
+	
+	// Сохраняем в JSON формате для удобства
+	path := filepath.Join(dir, "file_urls.json")
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	for _, file := range files {
-		line := file.URL
-		
-		// Добавляем ключевые слова
-		if len(file.Keywords) > 0 {
-			line += " | " + file.Keywords[0]
-			for i := 1; i < len(file.Keywords); i++ {
-				line += ", " + file.Keywords[i]
-			}
-		} else {
-			line += " | "
-		}
-		
-		// Добавляем дату публикации
-		if file.PubDate != "" {
-			line += " | " + file.PubDate
-		}
-		
-		if _, err := f.WriteString(line + "\n"); err != nil {
-			return err
-		}
-	}
-	return nil
+	
+	enc := json.NewEncoder(f)
+	enc.SetIndent("", "  ")
+	return enc.Encode(files)
 }
 
 

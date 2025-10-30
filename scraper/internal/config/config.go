@@ -104,6 +104,15 @@ func GetTelegramChatID() string {
 	return os.Getenv("TELEGRAM_CHAT_ID")
 }
 
+func GetTelegramSendAsDocument() bool {
+	// По умолчанию true - отправляем файлы напрямую
+	val := os.Getenv("TELEGRAM_SEND_AS_DOCUMENT")
+	if val == "" {
+		return true // По умолчанию включено
+	}
+	return val == "true" || val == "1" || val == "yes"
+}
+
 func GetCronSchedule() string {
 	if s := os.Getenv("CRON_SCHEDULE"); s != "" {
 		return s

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 
 	"lawScraper/scraper/internal/config"
@@ -100,10 +101,11 @@ func maskToken(token string) string {
 	return token[:4] + "..." + token[len(token)-4:]
 }
 
-func SendFileURLWithKeywords(fileURL string, keywords []string, pubDate string) error {
+func SendFileURLWithKeywords(fileURL string, keywords []string, pubDate string, title string, description string) error {
 	logger.Log.Infof("📤 Подготовка отправки уведомления для файла: %s", fileURL)
 	logger.Log.Infof("Найдено ключевых слов: %d (%v)", len(keywords), keywords)
 	logger.Log.Infof("Дата публикации: %s", pubDate)
+	logger.Log.Infof("Заголовок: %s", title)
 	
 	keywordsStr := ""
 	if len(keywords) > 0 {
@@ -113,17 +115,68 @@ func SendFileURLWithKeywords(fileURL string, keywords []string, pubDate string) 
 		}
 	}
 
-	message := fmt.Sprintf(
-		"🔍 <b>Найдено совпадение</b>\n\n"+
-			"📄 <b>Файл:</b> <a href=\"%s\">Ссылка на документ</a>\n"+
-			"🔑 <b>Ключевые слова:</b> %s",
-		fileURL,
-		keywordsStr,
-	)
+	// Формируем caption для документа
+	caption := "🔍 <b>Найдено совпадение</b>\n\n"
 	
-	// Добавляем дату публикации если она есть
+	if title != "" {
+		caption += fmt.Sprintf("📋 <b>%s</b>\n\n", title)
+	}
+	
+	if description != "" {
+		// Ограничиваем длину description для Telegram (макс 1024 символа для caption)
+		maxDescLen := 500
+		desc := description
+		if len(desc) > maxDescLen {
+			desc = desc[:maxDescLen] + "..."
+		}
+		caption += fmt.Sprintf("📝 %s\n\n", desc)
+	}
+	
+	caption += fmt.Sprintf("🔑 <b>Ключевые слова:</b> %s", keywordsStr)
+	
 	if pubDate != "" {
-		message += fmt.Sprintf("\n📅 <b>Дата публикации:</b> %s", pubDate)
+		caption += fmt.Sprintf("\n📅 <b>Дата:</b> %s", pubDate)
+	}
+
+	// Проверяем режим отправки (отправлять ли файл напрямую)
+	sendAsDocument := config.GetTelegramSendAsDocument()
+	
+	if sendAsDocument {
+		logger.Log.Info("Режим: отправка файла как документ в Telegram")
+		// Отправляем файл напрямую как документ
+		return SendDocumentToTelegram(fileURL, caption)
+	}
+
+	// Режим по умолчанию: отправка ссылки на файл
+	logger.Log.Info("Режим: отправка ссылки на файл")
+	
+	message := "🔍 <b>Найдено совпадение</b>\n\n"
+	
+	if title != "" {
+		message += fmt.Sprintf("📋 <b>%s</b>\n\n", title)
+	}
+	
+	message += fmt.Sprintf("📄 <b>Файл:</b> <a href=\"%s\">Скачать документ</a>\n", fileURL)
+	
+	if description != "" {
+		// Ограничиваем длину description
+		maxDescLen := 500
+		desc := description
+		if len(desc) > maxDescLen {
+			desc = desc[:maxDescLen] + "..."
+		}
+		message += fmt.Sprintf("📝 %s\n\n", desc)
+	}
+	
+	message += fmt.Sprintf("🔑 <b>Ключевые слова:</b> %s", keywordsStr)
+	
+	if pubDate != "" {
+		message += fmt.Sprintf("\n📅 <b>Дата:</b> %s", pubDate)
+	}
+	
+	// Добавляем инструкцию о расширении файла
+	if !hasExtension(fileURL) {
+		message += "\n\n💡 <i>После скачивания переименуйте файл, добавив расширение .docx</i>"
 	}
 
 	logger.Log.Infof("Сформированное сообщение для отправки (длина: %d символов)", len(message))
@@ -135,6 +188,102 @@ func SendFileURLWithKeywords(fileURL string, keywords []string, pubDate string) 
 	}
 	
 	logger.Log.Infof("✅ Уведомление для %s отправлено успешно", fileURL)
+	return nil
+}
+
+// hasExtension проверяет, есть ли расширение файла в URL
+func hasExtension(url string) bool {
+	// Проверяем наличие типичных расширений документов
+	extensions := []string{".docx", ".doc", ".pdf", ".txt", ".xlsx", ".xls"}
+	for _, ext := range extensions {
+		if len(url) >= len(ext) && url[len(url)-len(ext):] == ext {
+			return true
+		}
+	}
+	return false
+}
+
+// SendDocumentToTelegram отправляет файл как документ в Telegram
+func SendDocumentToTelegram(fileURL string, caption string) error {
+	token := config.GetTelegramToken()
+	chatID := config.GetTelegramChatID()
+
+	if token == "" || chatID == "" {
+		return fmt.Errorf("telegram bot token или chat id не настроены")
+	}
+
+	logger.Log.Infof("Скачивание файла с %s...", fileURL)
+	
+	// Скачиваем файл
+	resp, err := http.Get(fileURL)
+	if err != nil {
+		return fmt.Errorf("ошибка скачивания файла: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("ошибка при скачивании файла: статус %d", resp.StatusCode)
+	}
+
+	fileData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("ошибка чтения файла: %w", err)
+	}
+
+	logger.Log.Infof("Файл скачан, размер: %d байт", len(fileData))
+
+	// Отправляем файл в Telegram
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendDocument", token)
+
+	// Создаем multipart form
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	// Добавляем chat_id
+	_ = writer.WriteField("chat_id", chatID)
+	
+	// Добавляем caption
+	if caption != "" {
+		_ = writer.WriteField("caption", caption)
+		_ = writer.WriteField("parse_mode", "HTML")
+	}
+
+	// Добавляем файл
+	part, err := writer.CreateFormFile("document", "document.docx")
+	if err != nil {
+		return fmt.Errorf("ошибка создания form file: %w", err)
+	}
+	
+	if _, err := part.Write(fileData); err != nil {
+		return fmt.Errorf("ошибка записи файла: %w", err)
+	}
+
+	writer.Close()
+
+	// Отправляем запрос
+	req, err := http.NewRequest("POST", url, body)
+	if err != nil {
+		return fmt.Errorf("ошибка создания запроса: %w", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	client := &http.Client{}
+	logger.Log.Info("Отправка документа в Telegram...")
+	
+	apiResp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("ошибка отправки документа: %w", err)
+	}
+	defer apiResp.Body.Close()
+
+	respBody, _ := io.ReadAll(apiResp.Body)
+	
+	if apiResp.StatusCode != http.StatusOK {
+		logger.Log.Errorf("❌ Ошибка Telegram API: %s, тело: %s", apiResp.Status, string(respBody))
+		return fmt.Errorf("telegram api вернул ошибку: %s", apiResp.Status)
+	}
+
+	logger.Log.Info("✅ Документ успешно отправлен в Telegram")
 	return nil
 }
 

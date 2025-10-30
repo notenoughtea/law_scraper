@@ -1,15 +1,16 @@
 package service
 
 import (
-	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
+	"path/filepath"
 	"time"
 
 	"lawScraper/scraper/internal/clients"
 	"lawScraper/scraper/internal/config"
 	"lawScraper/scraper/internal/logger"
+	"lawScraper/scraper/internal/repository"
 )
 
 func SendNotificationsFromFile() error {
@@ -17,67 +18,49 @@ func SendNotificationsFromFile() error {
 	logger.Log.Info("  НАЧАЛО ПРОЦЕССА ОТПРАВКИ УВЕДОМЛЕНИЙ")
 	logger.Log.Info("════════════════════════════════════════")
 	
-	filePath := config.GetMatchedDir() + "/file_urls.txt"
+	filePath := filepath.Join(config.GetMatchedDir(), "file_urls.json")
 	logger.Log.Infof("Путь к файлу с URL: %s", filePath)
 
-	file, err := os.Open(filePath)
+	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			logger.Log.Warn("⚠️  Файл file_urls.txt не найден, нечего отправлять")
+			logger.Log.Warn("⚠️  Файл file_urls.json не найден, нечего отправлять")
 			return nil
 		}
-		logger.Log.Errorf("❌ Ошибка открытия файла %s: %v", filePath, err)
-		return fmt.Errorf("ошибка открытия файла: %w", err)
+		logger.Log.Errorf("❌ Ошибка чтения файла %s: %v", filePath, err)
+		return fmt.Errorf("ошибка чтения файла: %w", err)
 	}
-	defer file.Close()
 
-	logger.Log.Info("✓ Файл успешно открыт, начинаем чтение...")
+	var files []repository.FileURLWithKeywords
+	if err := json.Unmarshal(data, &files); err != nil {
+		logger.Log.Errorf("❌ Ошибка парсинга JSON: %v", err)
+		return fmt.Errorf("ошибка парсинга JSON: %w", err)
+	}
 
-	scanner := bufio.NewScanner(file)
+	logger.Log.Infof("✓ Загружено %d файлов для отправки", len(files))
+
 	count := 0
-	lineNum := 0
 	
-	for scanner.Scan() {
-		lineNum++
-		line := strings.TrimSpace(scanner.Text())
-		
+	for i, file := range files {
 		logger.Log.Infof("────────────────────────────────────────")
-		logger.Log.Infof("Обработка строки %d: %s", lineNum, line)
-		
-		if line == "" {
-			logger.Log.Infof("  → Пустая строка, пропускаем")
-			continue
-		}
-
-		// Парсим строку: URL | keyword1, keyword2, ... | pubDate
-		parts := strings.Split(line, "|")
-		if len(parts) < 2 {
-			logger.Log.Warnf("⚠️  Некорректная строка в файле (нет разделителя '|'): %s", line)
-			continue
-		}
-
-		fileURL := strings.TrimSpace(parts[0])
-		keywordsStr := strings.TrimSpace(parts[1])
-		pubDate := ""
-		if len(parts) >= 3 {
-			pubDate = strings.TrimSpace(parts[2])
-		}
-		
-		keywords := make([]string, 0)
-		if keywordsStr != "" {
-			for _, kw := range strings.Split(keywordsStr, ",") {
-				keywords = append(keywords, strings.TrimSpace(kw))
-			}
-		}
-
-		logger.Log.Infof("  → URL: %s", fileURL)
-		logger.Log.Infof("  → Ключевые слова: %v", keywords)
-		logger.Log.Infof("  → Дата публикации: %s", pubDate)
+		logger.Log.Infof("Обработка файла %d/%d", i+1, len(files))
+		logger.Log.Infof("  → URL: %s", file.URL)
+		logger.Log.Infof("  → Ключевые слова: %v", file.Keywords)
+		logger.Log.Infof("  → Дата публикации: %s", file.PubDate)
+		logger.Log.Infof("  → Заголовок: %s", file.Title)
+		logger.Log.Infof("  → Описание: %s (длина: %d)", 
+			truncateString(file.Description, 50), len(file.Description))
 
 		// Отправляем уведомление
 		logger.Log.Infof("  → Попытка отправки уведомления %d...", count+1)
-		if err := clients.SendFileURLWithKeywords(fileURL, keywords, pubDate); err != nil {
-			logger.Log.Errorf("❌ Ошибка отправки уведомления для %s: %v", fileURL, err)
+		if err := clients.SendFileURLWithKeywords(
+			file.URL, 
+			file.Keywords, 
+			file.PubDate,
+			file.Title,
+			file.Description,
+		); err != nil {
+			logger.Log.Errorf("❌ Ошибка отправки уведомления для %s: %v", file.URL, err)
 			continue
 		}
 
@@ -89,14 +72,17 @@ func SendNotificationsFromFile() error {
 		time.Sleep(1 * time.Second)
 	}
 
-	if err := scanner.Err(); err != nil {
-		logger.Log.Errorf("❌ Ошибка чтения файла: %v", err)
-		return fmt.Errorf("ошибка чтения файла: %w", err)
-	}
-
 	logger.Log.Info("════════════════════════════════════════")
-	logger.Log.Infof("  ИТОГО: Отправлено %d уведомлений в Telegram из %d строк", count, lineNum)
+	logger.Log.Infof("  ИТОГО: Отправлено %d уведомлений в Telegram из %d файлов", count, len(files))
 	logger.Log.Info("════════════════════════════════════════")
 	return nil
+}
+
+// truncateString обрезает строку до указанной длины
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 

@@ -7,10 +7,12 @@ import (
 	"path/filepath"
 	"syscall"
 
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/joho/godotenv"
 	"github.com/robfig/cron/v3"
 
 	"lawScraper/scraper/internal/config"
+	"lawScraper/scraper/internal/handler"
 	"lawScraper/scraper/internal/logger"
 	"lawScraper/scraper/internal/service"
 )
@@ -33,6 +35,39 @@ func runScanAndNotify() {
 	}
 
 	logger.Log.Info("Задача выполнена успешно")
+}
+
+// startTelegramBot запускает Telegram бота для приема команд
+func startTelegramBot() {
+	token := config.GetTelegramToken()
+	if token == "" {
+		logger.Log.Warn("TELEGRAM_BOT_TOKEN не установлен, бот не будет запущен")
+		return
+	}
+
+	bot, err := tgbotapi.NewBotAPI(token)
+	if err != nil {
+		logger.Log.Errorf("Ошибка инициализации Telegram бота: %v", err)
+		return
+	}
+
+	logger.Log.Infof("✅ Telegram бот авторизован: @%s", bot.Self.UserName)
+
+	// Создаем обработчик команд
+	botHandler := handler.NewTelegramBotHandler(bot)
+
+	// Настраиваем получение обновлений
+	u := tgbotapi.NewUpdate(0)
+	u.Timeout = 60
+
+	updates := bot.GetUpdatesChan(u)
+
+	logger.Log.Info("🤖 Telegram бот запущен и ожидает команды...")
+
+	// Обрабатываем входящие обновления
+	for update := range updates {
+		botHandler.HandleUpdate(update)
+	}
 }
 
 func main() {
@@ -58,6 +93,9 @@ func main() {
 	// Запуск крон-планировщика
 	c.Start()
 	logger.Log.Info("Крон-планировщик запущен, ожидание выполнения задач...")
+
+	// Запуск Telegram бота в отдельной горутине
+	go startTelegramBot()
 
 	// Опционально: запуск сразу при старте
 	if os.Getenv("RUN_ON_START") == "true" {

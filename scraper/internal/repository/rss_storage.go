@@ -76,8 +76,8 @@ func GetNewRSSItems(newFeed, oldFeed *dto.RSS) []dto.RSSItem {
 }
 
 func LoadKeywords() []string {
-    kws := config.GetKeywords()
-    return kws
+    // Используем GetCurrentKeywords, которая загружает из файла или .env
+    return GetCurrentKeywords()
 }
 
 

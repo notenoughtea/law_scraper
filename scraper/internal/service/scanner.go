@@ -168,10 +168,12 @@ func decodeToLowerUTF8(b []byte) string {
 }
 
 type Match struct {
-    ProjectURL string   `json:"projectUrl"`
-    FileURL    string   `json:"fileUrl"`
-    Keywords   []string `json:"keywords"`
-    PubDate    string   `json:"pubDate"` // Дата публикации из RSS
+    ProjectURL  string   `json:"projectUrl"`
+    FileURL     string   `json:"fileUrl"`
+    Keywords    []string `json:"keywords"`
+    PubDate     string   `json:"pubDate"`     // Дата публикации из RSS
+    Title       string   `json:"title"`       // Заголовок из RSS
+    Description string   `json:"description"` // Описание из RSS
 }
 
 func ScanRSSAndProjects(rssURL string) ([]Match, error) {
@@ -231,10 +233,12 @@ func ScanRSSAndProjects(rssURL string) ([]Match, error) {
         }
         if len(foundPage) > 0 {
             matches = append(matches, Match{
-                ProjectURL: pageURL, 
-                FileURL:    pageURL, 
-                Keywords:   foundPage,
-                PubDate:    it.PubDate,
+                ProjectURL:  pageURL, 
+                FileURL:     pageURL, 
+                Keywords:    foundPage,
+                PubDate:     it.PubDate,
+                Title:       it.Title,
+                Description: it.Description,
             })
         }
 
@@ -283,10 +287,12 @@ func ScanRSSAndProjects(rssURL string) ([]Match, error) {
                     if len(found) > 0 {
                         logger.Log.Infof("сравнение слов: файл=%s, найдено=%v", fileURL, found)
                         matches = append(matches, Match{
-                            ProjectURL: pageURL, 
-                            FileURL:    fileURL, 
-                            Keywords:   found,
-                            PubDate:    it.PubDate,
+                            ProjectURL:  pageURL, 
+                            FileURL:     fileURL, 
+                            Keywords:    found,
+                            PubDate:     it.PubDate,
+                            Title:       it.Title,
+                            Description: it.Description,
                         })
                     } else {
                         logger.Log.Infof("сравнение слов: файл=%s, совпадений нет", fileURL)
@@ -302,9 +308,11 @@ func ScanRSSAndProjects(rssURL string) ([]Match, error) {
 		if m.FileURL != m.ProjectURL {
 			// Добавляем только URL-ы файлов, а не страниц проектов
 			fileURLs = append(fileURLs, repository.FileURLWithKeywords{
-				URL:      m.FileURL,
-				Keywords: m.Keywords,
-				PubDate:  m.PubDate,
+				URL:         m.FileURL,
+				Keywords:    m.Keywords,
+				PubDate:     m.PubDate,
+				Title:       m.Title,
+				Description: m.Description,
 			})
 		}
 	}
@@ -312,7 +320,7 @@ func ScanRSSAndProjects(rssURL string) ([]Match, error) {
 		if err := repository.SaveFileURLs(fileURLs); err != nil {
 			logger.Log.Warnf("не удалось сохранить список URL-ов файлов: %v", err)
 		} else {
-			logger.Log.Infof("сохранен список из %d URL-ов файлов с ключевыми словами и датами", len(fileURLs))
+			logger.Log.Infof("сохранен список из %d URL-ов файлов с метаданными", len(fileURLs))
 		}
 	}
 	

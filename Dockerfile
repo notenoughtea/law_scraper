@@ -15,6 +15,7 @@ COPY scraper/ ./
 # Собираем бинарники
 RUN CGO_ENABLED=0 GOOS=linux go build -o /bin/cron cmd/cron/main.go
 RUN CGO_ENABLED=0 GOOS=linux go build -o /bin/scraper cmd/scraper/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -o /bin/bot cmd/bot/main.go
 
 # Финальный образ
 FROM alpine:latest
@@ -27,6 +28,7 @@ RUN apk --no-cache add ca-certificates tzdata
 # Копируем бинарники из builder
 COPY --from=builder /bin/cron ./bin/cron
 COPY --from=builder /bin/scraper ./bin/scraper
+COPY --from=builder /bin/bot ./bin/bot
 
 # Создаем директорию для данных
 RUN mkdir -p /app/data/matched
