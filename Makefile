@@ -171,22 +171,28 @@ check-commit: ## Проверить последний ли коммит на с
 	@echo "🔍 Сравнение:"
 	@LOCAL_HASH=$$(git rev-parse HEAD 2>/dev/null); \
 	if [ -n "$$LOCAL_HASH" ]; then \
+		LOCAL_SHORT=$$(echo "$$LOCAL_HASH" | cut -c1-8); \
+		LOCAL_MSG=$$(git log -1 --pretty=format:'%s' 2>/dev/null || echo 'N/A'); \
 		chmod +x deployment/scripts/get-commit-hash.sh 2>/dev/null; \
 		REMOTE_HASH=$$(./deployment/scripts/get-commit-hash.sh 2>/dev/null); \
 		if [ -z "$$REMOTE_HASH" ]; then \
 			echo "  ⚠️  Не удалось получить коммит с сервера"; \
-			echo "     Локальный: $$LOCAL_HASH"; \
+			echo "     Локальный: $$LOCAL_SHORT ($$LOCAL_MSG)"; \
 			echo ""; \
 			echo "  💡 Возможные причины:"; \
 			echo "     - На сервере нет git репозитория и файла .deployment_info"; \
 			echo "     - Проблемы с SSH подключением"; \
 			echo "  💡 Для обновления: make deploy"; \
 		elif [ "$$REMOTE_HASH" = "$$LOCAL_HASH" ]; then \
+			REMOTE_SHORT=$$(echo "$$REMOTE_HASH" | cut -c1-8); \
 			echo "  ✅ Коммиты совпадают - на сервере последняя версия!"; \
+			echo "     Хеш: $$REMOTE_SHORT ($$LOCAL_MSG)"; \
 		else \
+			REMOTE_SHORT=$$(echo "$$REMOTE_HASH" | cut -c1-8); \
+			REMOTE_MSG=$$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes root@77.105.133.231 'cd /opt/law_scraper 2>/dev/null && if [ -f .deployment_info ]; then grep "^COMMIT_MESSAGE=" .deployment_info | cut -d"=" -f2- | sed "s/^\"//; s/\"\$\$//" | head -1; fi' 2>/dev/null | sed 's/^"//; s/"$$//' || echo 'N/A'); \
 			echo "  ⚠️  Коммиты отличаются:"; \
-			echo "     Локальный:  $$LOCAL_HASH"; \
-			echo "     На сервере: $$REMOTE_HASH"; \
+			echo "     Локальный:  $$LOCAL_SHORT ($$LOCAL_MSG)"; \
+			echo "     На сервере: $$REMOTE_SHORT ($$REMOTE_MSG)"; \
 			echo ""; \
 			echo "  💡 Для обновления: make deploy"; \
 		fi; \
