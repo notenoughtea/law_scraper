@@ -6,10 +6,10 @@ import (
 	"io"
 	"net/http"
 
-	"lawScraper/scraper/internal/config"
-	"lawScraper/scraper/internal/dto"
-	"lawScraper/scraper/internal/logger"
-	"lawScraper/scraper/internal/repository"
+	"github.com/notenoughtea/law_scraper/internal/config"
+	"github.com/notenoughtea/law_scraper/internal/dto"
+	"github.com/notenoughtea/law_scraper/internal/logger"
+	"github.com/notenoughtea/law_scraper/internal/repository"
 )
 
 func GetActsList() ([]dto.ListResponse, error) {

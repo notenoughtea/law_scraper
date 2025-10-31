@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 
-	"lawScraper/scraper/internal/config"
-	"lawScraper/scraper/internal/logger"
+	"github.com/notenoughtea/law_scraper/internal/config"
+	"github.com/notenoughtea/law_scraper/internal/logger"
 )
 
 var (

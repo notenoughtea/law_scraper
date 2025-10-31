@@ -1,4 +1,4 @@
-module lawScraper
+module github.com/notenoughtea/law_scraper
 
 go 1.24.4
 

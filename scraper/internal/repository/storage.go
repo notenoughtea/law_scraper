@@ -7,8 +7,9 @@ import (
     "os"
     "path/filepath"
 
-    "lawScraper/scraper/internal/config"
-    "lawScraper/scraper/internal/dto"
+    "github.com/notenoughtea/law_scraper/internal/config"
+    "github.com/notenoughtea/law_scraper/internal/dto"
+    "github.com/notenoughtea/law_scraper/internal/logger"
 )
 
 func ensureDir(path string) error {
@@ -74,6 +75,20 @@ func SaveFileURLs(files []FileURLWithKeywords) error {
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ")
 	return enc.Encode(files)
+}
+
+// ClearPagesData удаляет файл pages.json
+func ClearPagesData() error {
+	storage := config.GetStoragePath()
+	if err := os.Remove(storage); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			logger.Log.Info("Файл pages.json не найден, удалять нечего")
+			return nil
+		}
+		return err
+	}
+	logger.Log.Info("Файл pages.json успешно удален")
+	return nil
 }
 
 

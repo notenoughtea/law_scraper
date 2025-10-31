@@ -3,11 +3,11 @@ package main
 import (
 	"path/filepath"
 
-	"lawScraper/scraper/internal/clients"
-	"lawScraper/scraper/internal/config"
-	"lawScraper/scraper/internal/logger"
-	"lawScraper/scraper/internal/repository"
-	"lawScraper/scraper/internal/service"
+	"github.com/notenoughtea/law_scraper/internal/clients"
+	"github.com/notenoughtea/law_scraper/internal/config"
+	"github.com/notenoughtea/law_scraper/internal/logger"
+	"github.com/notenoughtea/law_scraper/internal/repository"
+	"github.com/notenoughtea/law_scraper/internal/service"
 
 	"github.com/joho/godotenv"
 )

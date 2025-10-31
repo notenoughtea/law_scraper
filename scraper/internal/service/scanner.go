@@ -14,9 +14,9 @@ import (
     "encoding/xml"
     "fmt"
 
-    "lawScraper/scraper/internal/clients"
-    "lawScraper/scraper/internal/logger"
-    "lawScraper/scraper/internal/repository"
+    "github.com/notenoughtea/law_scraper/internal/clients"
+    "github.com/notenoughtea/law_scraper/internal/logger"
+    "github.com/notenoughtea/law_scraper/internal/repository"
 )
 
 var attachmentRe = regexp.MustCompile(`href="([^"]+\.(?:pdf|txt|docx|doc))"`)

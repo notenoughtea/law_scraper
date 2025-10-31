@@ -30,6 +30,9 @@ COPY --from=builder /bin/cron ./bin/cron
 COPY --from=builder /bin/scraper ./bin/scraper
 COPY --from=builder /bin/bot ./bin/bot
 
+# Копируем go.mod для определения корня проекта
+COPY scraper/go.mod ./
+
 # Создаем директорию для данных
 RUN mkdir -p /app/data/matched
 

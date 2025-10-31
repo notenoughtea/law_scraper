@@ -11,30 +11,26 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/robfig/cron/v3"
 
-	"lawScraper/scraper/internal/config"
-	"lawScraper/scraper/internal/handler"
-	"lawScraper/scraper/internal/logger"
-	"lawScraper/scraper/internal/service"
+	"github.com/notenoughtea/law_scraper/internal/config"
+	"github.com/notenoughtea/law_scraper/internal/handler"
+	"github.com/notenoughtea/law_scraper/internal/logger"
+	"github.com/notenoughtea/law_scraper/internal/service"
 )
 
 func runScanAndNotify() {
-	logger.Log.Info("Запуск сканирования...")
+	logger.Log.Info("Запуск сканирования (параллельный режим)...")
 
 	const rssURL = "https://regulation.gov.ru/api/public/Rss/"
-	matches, err := service.ScanRSSAndProjects(rssURL)
+	
+	// Используем параллельную версию с отправкой уведомлений сразу
+	// Это оптимизировано для слабых серверов (768MB RAM, 1 CPU)
+	matchesCount, err := service.ScanRSSAndProjectsParallel(rssURL)
 	if err != nil {
 		logger.Log.Errorf("Ошибка сканирования RSS/проектов: %v", err)
 		return
 	}
-	logger.Log.Infof("Найдено совпадений: %d", len(matches))
 
-	// Отправка уведомлений в Telegram
-	if err := service.SendNotificationsFromFile(); err != nil {
-		logger.Log.Errorf("Ошибка отправки уведомлений: %v", err)
-		return
-	}
-
-	logger.Log.Info("Задача выполнена успешно")
+	logger.Log.Infof("✅ Задача выполнена успешно. Найдено совпадений: %d. Уведомления отправлены сразу.", matchesCount)
 }
 
 // startTelegramBot запускает Telegram бота для приема команд

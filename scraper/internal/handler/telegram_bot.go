@@ -3,20 +3,25 @@ package handler
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	"lawScraper/scraper/internal/logger"
-	"lawScraper/scraper/internal/repository"
+	"github.com/notenoughtea/law_scraper/internal/logger"
+	"github.com/notenoughtea/law_scraper/internal/repository"
+	"github.com/notenoughtea/law_scraper/internal/service"
 )
 
 type TelegramBotHandler struct {
-	bot *tgbotapi.BotAPI
+	bot          *tgbotapi.BotAPI
+	scanMutex    sync.Mutex
+	isScanning   bool
 }
 
 // NewTelegramBotHandler создает новый обработчик команд Telegram бота
 func NewTelegramBotHandler(bot *tgbotapi.BotAPI) *TelegramBotHandler {
 	return &TelegramBotHandler{
-		bot: bot,
+		bot:        bot,
+		isScanning: false,
 	}
 }
 
@@ -60,6 +65,10 @@ func (h *TelegramBotHandler) handleCommand(msg *tgbotapi.Message) {
 		h.handleAddKeyword(msg)
 	case "remove_keyword":
 		h.handleRemoveKeyword(msg)
+	case "scan":
+		h.handleScan(msg)
+	case "clear_data":
+		h.handleClearData(msg)
 	default:
 		h.sendMessage(msg.Chat.ID, "❌ Неизвестная команда. Используйте /help для справки.")
 	}
@@ -98,6 +107,12 @@ func (h *TelegramBotHandler) sendHelp(chatID int64) {
 <b>/remove_keyword</b> слово
    Удалить ключевое слово
    Пример: /remove_keyword транспорт
+
+<b>/scan</b> - запустить парсер вручную
+   Начинает сканирование RSS и поиск по ключевым словам
+
+<b>/clear_data</b> - удалить сохраненные данные
+   Удаляет rss.json и pages.json (после этого все элементы будут считаться новыми)
 
 <b>/help</b> - показать эту справку
 
@@ -226,6 +241,67 @@ func (h *TelegramBotHandler) handleRemoveKeyword(msg *tgbotapi.Message) {
 	h.sendMessage(msg.Chat.ID, response)
 	
 	logger.Log.Infof("Пользователь %s удалил ключевое слово: %s", msg.From.UserName, keyword)
+}
+
+// handleScan обрабатывает команду /scan - запуск парсера вручную
+func (h *TelegramBotHandler) handleScan(msg *tgbotapi.Message) {
+	h.scanMutex.Lock()
+	if h.isScanning {
+		h.scanMutex.Unlock()
+		h.sendMessage(msg.Chat.ID, "⏳ Сканирование уже выполняется, пожалуйста подождите...")
+		return
+	}
+	h.isScanning = true
+	h.scanMutex.Unlock()
+
+	// Запускаем сканирование в отдельной горутине
+	go func() {
+		defer func() {
+			h.scanMutex.Lock()
+			h.isScanning = false
+			h.scanMutex.Unlock()
+		}()
+
+		h.sendMessage(msg.Chat.ID, "🚀 Запуск сканирования (параллельный режим)...\n\n⏳ Это может занять несколько минут.\n\n💡 <i>Обрабатывается параллельно с ограниченным количеством воркеров для экономии ресурсов.</i>")
+		
+		matches, err := service.RunManualScan()
+		if err != nil {
+			h.sendMessage(msg.Chat.ID, fmt.Sprintf("❌ <b>Ошибка сканирования:</b>\n\n%v", err))
+			logger.Log.Errorf("Ошибка ручного сканирования: %v", err)
+			return
+		}
+
+		h.sendMessage(msg.Chat.ID, fmt.Sprintf("✅ <b>Сканирование завершено!</b>\n\n📊 Найдено совпадений: %d\n\n📨 Уведомления отправлены в Telegram сразу после обработки каждого файла.", matches))
+		logger.Log.Infof("Пользователь %s запустил ручное сканирование, найдено совпадений: %d", msg.From.UserName, matches)
+	}()
+}
+
+// handleClearData обрабатывает команду /clear_data - удаление сохраненных данных
+func (h *TelegramBotHandler) handleClearData(msg *tgbotapi.Message) {
+	// Подтверждение перед удалением
+	args := strings.TrimSpace(msg.CommandArguments())
+	if args != "yes" {
+		h.sendMessage(msg.Chat.ID, "⚠️ <b>Внимание!</b> Эта команда удалит сохраненные данные:\n\n• rss.json - кэш RSS\n• pages.json - кэш страниц\n\nПосле удаления все элементы будут считаться новыми при следующем сканировании.\n\nДля подтверждения отправьте:\n<b>/clear_data yes</b>")
+		return
+	}
+
+	// Удаляем данные
+	rssErr := repository.ClearRSSData()
+	pagesErr := repository.ClearPagesData()
+
+	var response string
+	if rssErr != nil && pagesErr != nil {
+		response = fmt.Sprintf("❌ <b>Ошибки при удалении:</b>\n\nRSS: %v\nPages: %v", rssErr, pagesErr)
+	} else if rssErr != nil {
+		response = fmt.Sprintf("⚠️ <b>Частично удалено:</b>\n\n✅ pages.json удален\n❌ rss.json: %v", rssErr)
+	} else if pagesErr != nil {
+		response = fmt.Sprintf("⚠️ <b>Частично удалено:</b>\n\n✅ rss.json удален\n❌ pages.json: %v", pagesErr)
+	} else {
+		response = "✅ <b>Данные успешно удалены!</b>\n\n• rss.json\n• pages.json\n\nПри следующем сканировании все элементы будут считаться новыми."
+	}
+
+	h.sendMessage(msg.Chat.ID, response)
+	logger.Log.Infof("Пользователь %s очистил сохраненные данные", msg.From.UserName)
 }
 
 // sendMessage отправляет сообщение в Telegram

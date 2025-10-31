@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"lawScraper/scraper/internal/clients"
-	"lawScraper/scraper/internal/config"
-	"lawScraper/scraper/internal/logger"
-	"lawScraper/scraper/internal/repository"
+	"github.com/notenoughtea/law_scraper/internal/clients"
+	"github.com/notenoughtea/law_scraper/internal/config"
+	"github.com/notenoughtea/law_scraper/internal/logger"
+	"github.com/notenoughtea/law_scraper/internal/repository"
 )
 
 func SendNotificationsFromFile() error {
@@ -84,5 +84,24 @@ func truncateString(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// RunManualScan выполняет сканирование вручную и возвращает результат
+// Использует параллельную обработку с отправкой уведомлений сразу
+func RunManualScan() (int, error) {
+	logger.Log.Info("🚀 Запуск ручного сканирования (параллельный режим)...")
+	
+	const rssURL = "https://regulation.gov.ru/api/public/Rss/"
+	
+	// Используем параллельную версию с отправкой уведомлений сразу
+	matchesCount, err := ScanRSSAndProjectsParallel(rssURL)
+	if err != nil {
+		logger.Log.Errorf("Ошибка сканирования RSS/проектов: %v", err)
+		return 0, err
+	}
+	
+	logger.Log.Infof("✅ Сканирование завершено. Найдено совпадений: %d. Уведомления отправлены сразу.", matchesCount)
+	
+	return matchesCount, nil
 }
 

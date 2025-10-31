@@ -5,7 +5,7 @@ import (
     "io"
     "net/http"
 
-    "lawScraper/scraper/internal/dto"
+    "github.com/notenoughtea/law_scraper/internal/dto"
 )
 
 func FetchRSS(url string) (*dto.RSS, error) {

@@ -6,10 +6,10 @@ import (
 
 	"github.com/joho/godotenv"
 
-	"lawScraper/scraper/internal/clients"
-	"lawScraper/scraper/internal/config"
-	"lawScraper/scraper/internal/logger"
-	"lawScraper/scraper/internal/service"
+	"github.com/notenoughtea/law_scraper/internal/clients"
+	"github.com/notenoughtea/law_scraper/internal/config"
+	"github.com/notenoughtea/law_scraper/internal/logger"
+	"github.com/notenoughtea/law_scraper/internal/service"
 )
 
 func main() {

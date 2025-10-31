@@ -7,9 +7,9 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/joho/godotenv"
 
-	"lawScraper/scraper/internal/config"
-	"lawScraper/scraper/internal/handler"
-	"lawScraper/scraper/internal/logger"
+	"github.com/notenoughtea/law_scraper/internal/config"
+	"github.com/notenoughtea/law_scraper/internal/handler"
+	"github.com/notenoughtea/law_scraper/internal/logger"
 )
 
 func main() {

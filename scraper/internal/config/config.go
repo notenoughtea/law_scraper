@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -118,4 +119,14 @@ func GetCronSchedule() string {
 		return s
 	}
 	return "0 9 * * *" // по умолчанию 9:00 каждый день
+}
+
+func GetMaxWorkers() int {
+	if w := os.Getenv("MAX_WORKERS"); w != "" {
+		var workers int
+		if _, err := fmt.Sscanf(w, "%d", &workers); err == nil && workers > 0 {
+			return workers
+		}
+	}
+	return 0 // вернет 0 если не установлено - будет использовано значение по умолчанию
 }

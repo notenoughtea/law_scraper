@@ -8,8 +8,8 @@ import (
 	"mime/multipart"
 	"net/http"
 
-	"lawScraper/scraper/internal/config"
-	"lawScraper/scraper/internal/logger"
+	"github.com/notenoughtea/law_scraper/internal/config"
+	"github.com/notenoughtea/law_scraper/internal/logger"
 )
 
 type TelegramMessage struct {
@@ -114,17 +114,29 @@ func SendFileURLWithKeywords(fileURL string, keywords []string, pubDate string, 
 			keywordsStr += ", " + keywords[i]
 		}
 	}
+	
+	// Проверка: если ключевые слова не найдены, показываем предупреждение
+	if keywordsStr == "" {
+		keywordsStr = "не указаны"
+		logger.Log.Warnf("⚠️  Ключевые слова не переданы в уведомление для %s", fileURL)
+	}
 
 	// Формируем caption для документа
+	// Важно: ключевые слова должны быть всегда, поэтому добавляем их сначала
 	caption := "🔍 <b>Найдено совпадение</b>\n\n"
+	
+	// Сначала добавляем ключевые слова (они важнее всего)
+	if keywordsStr != "" {
+		caption += fmt.Sprintf("🔑 <b>Ключевые слова:</b> %s\n\n", keywordsStr)
+	}
 	
 	if title != "" {
 		caption += fmt.Sprintf("📋 <b>%s</b>\n\n", title)
 	}
 	
 	if description != "" {
-		// Ограничиваем длину description для Telegram (макс 1024 символа для caption)
-		maxDescLen := 500
+		// Ограничиваем длину description до 30 символов
+		maxDescLen := 30
 		desc := description
 		if len(desc) > maxDescLen {
 			desc = desc[:maxDescLen] + "..."
@@ -132,10 +144,79 @@ func SendFileURLWithKeywords(fileURL string, keywords []string, pubDate string, 
 		caption += fmt.Sprintf("📝 %s\n\n", desc)
 	}
 	
-	caption += fmt.Sprintf("🔑 <b>Ключевые слова:</b> %s", keywordsStr)
-	
 	if pubDate != "" {
-		caption += fmt.Sprintf("\n📅 <b>Дата:</b> %s", pubDate)
+		caption += fmt.Sprintf("📅 <b>Дата:</b> %s", pubDate)
+	}
+
+	// Ограничиваем общую длину caption до 1024 символов (лимит Telegram)
+	// Ключевые слова НИКОГДА не обрезаем - они важнее всего
+	if len(caption) > 1024 {
+		// Сохраняем ключевые слова отдельно
+		keywordsSection := ""
+		if keywordsStr != "" {
+			keywordsSection = fmt.Sprintf("🔑 <b>Ключевые слова:</b> %s\n\n", keywordsStr)
+		}
+		
+		// Пересобираем с ограничением title и description, но оставляем ключевые слова
+		baseSize := len("🔍 <b>Найдено совпадение</b>\n\n") + len(keywordsSection) + 50 // 50 для форматирования и даты
+		maxAvailable := 1024 - baseSize - 100 // оставляем большой запас для даты и форматирования
+		
+		if maxAvailable < 100 {
+			// Если совсем мало места, оставляем только ключевые слова
+			caption = "🔍 <b>Найдено совпадение</b>\n\n" + keywordsSection
+			if pubDate != "" {
+				caption += fmt.Sprintf("📅 <b>Дата:</b> %s", pubDate)
+			}
+		} else {
+			// Пересобираем с ограничением title и description
+			caption = "🔍 <b>Найдено совпадение</b>\n\n" + keywordsSection
+			
+			if title != "" {
+				titleText := title
+				if len(titleText) > maxAvailable/2 {
+					titleText = titleText[:maxAvailable/2-3] + "..."
+				}
+				caption += fmt.Sprintf("📋 <b>%s</b>\n\n", titleText)
+				maxAvailable -= len(titleText)
+			}
+			
+			if description != "" && maxAvailable > 30 {
+				desc := description
+				if len(desc) > maxAvailable {
+					desc = desc[:maxAvailable-3] + "..."
+				} else if len(desc) > 30 {
+					desc = desc[:27] + "..."
+				}
+				caption += fmt.Sprintf("📝 %s\n\n", desc)
+			}
+			
+			if pubDate != "" {
+				caption += fmt.Sprintf("📅 <b>Дата:</b> %s", pubDate)
+			}
+		}
+		
+		// Финальная проверка: если все равно не помещается (крайне редко), обрезаем все кроме ключевых слов
+		if len(caption) > 1024 {
+			// Оставляем только базовую структуру + ключевые слова
+			caption = "🔍 <b>Найдено совпадение</b>\n\n" + keywordsSection
+			if pubDate != "" {
+				datePart := fmt.Sprintf("📅 <b>Дата:</b> %s", pubDate)
+				if len(caption)+len(datePart) <= 1024 {
+					caption += datePart
+				}
+			}
+			
+			// Если все равно не помещается (ключевые слова слишком длинные), обрезаем только их немного
+			if len(caption) > 1024 && keywordsStr != "" {
+				// Оставляем место для базовой структуры
+				maxKeywordsLen := 1024 - len("🔍 <b>Найдено совпадение</b>\n\n🔑 <b>Ключевые слова:</b> \n\n") - 50
+				if len(keywordsStr) > maxKeywordsLen {
+					keywordsStr = keywordsStr[:maxKeywordsLen-3] + "..."
+				}
+				caption = "🔍 <b>Найдено совпадение</b>\n\n"
+				caption += fmt.Sprintf("🔑 <b>Ключевые слова:</b> %s", keywordsStr)
+			}
+		}
 	}
 
 	// Проверяем режим отправки (отправлять ли файл напрямую)
@@ -152,6 +233,11 @@ func SendFileURLWithKeywords(fileURL string, keywords []string, pubDate string, 
 	
 	message := "🔍 <b>Найдено совпадение</b>\n\n"
 	
+	// Сначала добавляем ключевые слова (они важнее всего)
+	if keywordsStr != "" {
+		message += fmt.Sprintf("🔑 <b>Ключевые слова:</b> %s\n\n", keywordsStr)
+	}
+	
 	if title != "" {
 		message += fmt.Sprintf("📋 <b>%s</b>\n\n", title)
 	}
@@ -159,8 +245,8 @@ func SendFileURLWithKeywords(fileURL string, keywords []string, pubDate string, 
 	message += fmt.Sprintf("📄 <b>Файл:</b> <a href=\"%s\">Скачать документ</a>\n", fileURL)
 	
 	if description != "" {
-		// Ограничиваем длину description
-		maxDescLen := 500
+		// Ограничиваем длину description до 30 символов
+		maxDescLen := 30
 		desc := description
 		if len(desc) > maxDescLen {
 			desc = desc[:maxDescLen] + "..."
@@ -168,10 +254,8 @@ func SendFileURLWithKeywords(fileURL string, keywords []string, pubDate string, 
 		message += fmt.Sprintf("📝 %s\n\n", desc)
 	}
 	
-	message += fmt.Sprintf("🔑 <b>Ключевые слова:</b> %s", keywordsStr)
-	
 	if pubDate != "" {
-		message += fmt.Sprintf("\n📅 <b>Дата:</b> %s", pubDate)
+		message += fmt.Sprintf("📅 <b>Дата:</b> %s", pubDate)
 	}
 	
 	// Добавляем инструкцию о расширении файла

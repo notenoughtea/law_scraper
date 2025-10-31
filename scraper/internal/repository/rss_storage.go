@@ -7,9 +7,9 @@ import (
     "os"
     "path/filepath"
 
-    "lawScraper/scraper/internal/config"
-    "lawScraper/scraper/internal/dto"
-    "lawScraper/scraper/internal/logger"
+    "github.com/notenoughtea/law_scraper/internal/config"
+    "github.com/notenoughtea/law_scraper/internal/dto"
+    "github.com/notenoughtea/law_scraper/internal/logger"
 )
 
 func SaveRSS(feed *dto.RSS) error {
@@ -78,6 +78,20 @@ func GetNewRSSItems(newFeed, oldFeed *dto.RSS) []dto.RSSItem {
 func LoadKeywords() []string {
     // Используем GetCurrentKeywords, которая загружает из файла или .env
     return GetCurrentKeywords()
+}
+
+// ClearRSSData удаляет файл rss.json
+func ClearRSSData() error {
+	path := filepath.Join(config.GetProjectRoot(), "data", "rss.json")
+	if err := os.Remove(path); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			logger.Log.Info("Файл rss.json не найден, удалять нечего")
+			return nil
+		}
+		return err
+	}
+	logger.Log.Info("Файл rss.json успешно удален")
+	return nil
 }
 
 
