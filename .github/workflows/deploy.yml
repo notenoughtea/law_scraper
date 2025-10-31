@@ -52,24 +52,100 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up SSH
+      - name: Check secrets
         run: |
+          echo "🔍 Проверка наличия секретов..."
+          if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
+            echo "❌ ОШИБКА: SSH_PRIVATE_KEY не настроен в GitHub Secrets!"
+            echo ""
+            echo "💡 Инструкция по настройке:"
+            echo "   1. Откройте репозиторий в GitHub"
+            echo "   2. Settings → Secrets and variables → Actions"
+            echo "   3. New repository secret"
+            echo "   4. Name: SSH_PRIVATE_KEY"
+            echo "   5. Value: ваш приватный SSH ключ (весь, включая BEGIN/END)"
+            exit 1
+          fi
+          
+          if [ -z "${{ secrets.SERVER_HOST }}" ]; then
+            echo "❌ ОШИБКА: SERVER_HOST не настроен в GitHub Secrets!"
+            echo "💡 Установите: Settings → Secrets → New secret → Name: SERVER_HOST, Value: 77.105.133.231"
+            exit 1
+          fi
+          
+          if [ -z "${{ secrets.SERVER_USER }}" ]; then
+            echo "❌ ОШИБКА: SERVER_USER не настроен в GitHub Secrets!"
+            echo "💡 Установите: Settings → Secrets → New secret → Name: SERVER_USER, Value: root"
+            exit 1
+          fi
+          
+          echo "✅ Все необходимые секреты настроены"
+
+      - name: Set up SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+        run: |
+          set -e
+          
+          # Дополнительная проверка (на всякий случай)
+          if [ -z "$SSH_PRIVATE_KEY" ] || [ "$SSH_PRIVATE_KEY" = "null" ]; then
+            echo "❌ КРИТИЧЕСКАЯ ОШИБКА: SSH_PRIVATE_KEY пустой или не задан"
+            exit 1
+          fi
+          
+          if [ -z "$SERVER_HOST" ] || [ "$SERVER_HOST" = "null" ]; then
+            echo "❌ КРИТИЧЕСКАЯ ОШИБКА: SERVER_HOST пустой или не задан"
+            exit 1
+          fi
+          
+          if [ -z "$SERVER_USER" ] || [ "$SERVER_USER" = "null" ]; then
+            echo "❌ КРИТИЧЕСКАЯ ОШИБКА: SERVER_USER пустой или не задан"
+            exit 1
+          fi
+          
+          echo "✅ Настройка SSH..."
+          echo "   SERVER_HOST: $SERVER_HOST"
+          echo "   SERVER_USER: $SERVER_USER"
+          
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           
           # Записываем приватный ключ
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           
-          # Добавляем хост в known_hosts
-          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+          # Проверяем что ключ записан
+          if [ ! -s ~/.ssh/id_rsa ]; then
+            echo "❌ Ошибка: SSH ключ не записан в файл"
+            exit 1
+          fi
+          
+          # Добавляем хост в known_hosts (только если SERVER_HOST не пустой)
+          if [ -n "$SERVER_HOST" ] && [ "$SERVER_HOST" != "null" ]; then
+            echo "🔑 Добавляем хост $SERVER_HOST в known_hosts..."
+            ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts 2>&1 || {
+              echo "⚠️  Предупреждение: не удалось добавить хост в known_hosts (продолжаем)"
+            }
+          fi
           
           # Проверяем подключение
-          echo "🔍 Проверяем SSH подключение..."
+          echo "🔍 Проверяем SSH подключение к $SERVER_USER@$SERVER_HOST..."
           ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
-            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
+            "$SERVER_USER@$SERVER_HOST" \
             "echo '✅ SSH подключение работает!'" || {
+            echo ""
             echo "❌ Ошибка SSH подключения!"
+            echo ""
+            echo "💡 Возможные причины:"
+            echo "   1. SSH_PRIVATE_KEY неправильно скопирован (проверьте BEGIN/END)"
+            echo "   2. Публичный ключ не добавлен на сервер"
+            echo "   3. Сервер недоступен: ping $SERVER_HOST"
+            echo "   4. SSH сервис не запущен на сервере"
+            echo ""
+            echo "💡 Проверка на сервере:"
+            echo "   ssh root@$SERVER_HOST 'echo test'"
             exit 1
           }
 
