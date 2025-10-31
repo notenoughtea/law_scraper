@@ -10,7 +10,7 @@ on:
     branches:
       - main
       - master
-  workflow_dispatch:  # Позволяет запускать вручную
+  workflow_dispatch: # Позволяет запускать вручную
 
 jobs:
   test:
@@ -23,8 +23,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
-      
+          go-version: "1.24"
+
       - name: Download dependencies
         working-directory: ./scraper
         run: |
@@ -47,7 +47,7 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -66,19 +66,19 @@ jobs:
             echo "   5. Value: ваш приватный SSH ключ (весь, включая BEGIN/END)"
             exit 1
           fi
-          
+
           if [ -z "${{ secrets.SERVER_HOST }}" ]; then
             echo "❌ ОШИБКА: SERVER_HOST не настроен в GitHub Secrets!"
             echo "💡 Установите: Settings → Secrets → New secret → Name: SERVER_HOST, Value: 77.105.133.231"
             exit 1
           fi
-          
+
           if [ -z "${{ secrets.SERVER_USER }}" ]; then
             echo "❌ ОШИБКА: SERVER_USER не настроен в GitHub Secrets!"
             echo "💡 Установите: Settings → Secrets → New secret → Name: SERVER_USER, Value: root"
             exit 1
           fi
-          
+
           echo "✅ Все необходимые секреты настроены"
 
       - name: Set up SSH
@@ -88,40 +88,40 @@ jobs:
           SERVER_USER: ${{ secrets.SERVER_USER }}
         run: |
           set -e
-          
+
           # Дополнительная проверка (на всякий случай)
           if [ -z "$SSH_PRIVATE_KEY" ] || [ "$SSH_PRIVATE_KEY" = "null" ]; then
             echo "❌ КРИТИЧЕСКАЯ ОШИБКА: SSH_PRIVATE_KEY пустой или не задан"
             exit 1
           fi
-          
+
           if [ -z "$SERVER_HOST" ] || [ "$SERVER_HOST" = "null" ]; then
             echo "❌ КРИТИЧЕСКАЯ ОШИБКА: SERVER_HOST пустой или не задан"
             exit 1
           fi
-          
+
           if [ -z "$SERVER_USER" ] || [ "$SERVER_USER" = "null" ]; then
             echo "❌ КРИТИЧЕСКАЯ ОШИБКА: SERVER_USER пустой или не задан"
             exit 1
           fi
-          
+
           echo "✅ Настройка SSH..."
           echo "   SERVER_HOST: $SERVER_HOST"
           echo "   SERVER_USER: $SERVER_USER"
-          
+
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          
+
           # Записываем приватный ключ
           echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          
+
           # Проверяем что ключ записан
           if [ ! -s ~/.ssh/id_rsa ]; then
             echo "❌ Ошибка: SSH ключ не записан в файл"
             exit 1
           fi
-          
+
           # Добавляем хост в known_hosts (только если SERVER_HOST не пустой)
           if [ -n "$SERVER_HOST" ] && [ "$SERVER_HOST" != "null" ]; then
             echo "🔑 Добавляем хост $SERVER_HOST в known_hosts..."
@@ -129,7 +129,7 @@ jobs:
               echo "⚠️  Предупреждение: не удалось добавить хост в known_hosts (продолжаем)"
             }
           fi
-          
+
           # Проверяем подключение
           echo "🔍 Проверяем SSH подключение к $SERVER_USER@$SERVER_HOST..."
           ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
@@ -164,7 +164,7 @@ jobs:
           PROJECT_ROOT=/app
           MAX_WORKERS=${{ secrets.MAX_WORKERS }}
           EOF
-      
+
       - name: Create deployment info file
         run: |
           cat > .deployment_info << EOF
@@ -182,13 +182,13 @@ jobs:
           SERVER_USER: ${{ secrets.SERVER_USER }}
         run: |
           set -e  # Прерывать при ошибках
-          
+
           echo "📁 Создаем директории на сервере..."
           ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_HOST \
             "mkdir -p /opt/law_scraper/scraper /opt/law_scraper/data"
-          
+
           echo "📦 Копируем файлы на сервер..."
-          
+
           # Используем scp для копирования файлов (rsync может быть недоступен)
           # Копируем основные файлы и директории
           echo "   → Копируем scraper/..."
@@ -196,11 +196,11 @@ jobs:
             echo "❌ Ошибка копирования scraper/"
             exit 1
           }
-          
+
           echo "   → Копируем Dockerfile и docker-compose.yml..."
           scp -o StrictHostKeyChecking=no Dockerfile $SERVER_USER@$SERVER_HOST:/opt/law_scraper/ || true
           scp -o StrictHostKeyChecking=no docker-compose.yml $SERVER_USER@$SERVER_HOST:/opt/law_scraper/ || true
-          
+
           echo "   → Копируем .env..."
           if [ -f .env ]; then
             scp -o StrictHostKeyChecking=no .env $SERVER_USER@$SERVER_HOST:/opt/law_scraper/.env || {
@@ -209,16 +209,16 @@ jobs:
           else
             echo "⚠️ Файл .env не найден, будет использован существующий на сервере"
           fi
-          
+
           echo "   → Копируем .deployment_info..."
           if [ -f .deployment_info ]; then
             scp -o StrictHostKeyChecking=no .deployment_info $SERVER_USER@$SERVER_HOST:/opt/law_scraper/.deployment_info || {
               echo "⚠️ Не удалось скопировать .deployment_info"
             }
           fi
-          
+
           echo "✅ Файлы скопированы!"
-          
+
           # Проверяем что файлы скопировались
           echo "🔍 Проверяем наличие файлов на сервере..."
           ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_HOST \
@@ -320,4 +320,3 @@ jobs:
         if: failure()
         run: |
           echo "❌ Deployment to ${{ secrets.SERVER_HOST }} failed!"
-
