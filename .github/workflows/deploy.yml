@@ -55,9 +55,23 @@ jobs:
       - name: Set up SSH
         run: |
           mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          
+          # Записываем приватный ключ
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
+          
+          # Добавляем хост в known_hosts
           ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+          
+          # Проверяем подключение
+          echo "🔍 Проверяем SSH подключение..."
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
+            "echo '✅ SSH подключение работает!'" || {
+            echo "❌ Ошибка SSH подключения!"
+            exit 1
+          }
 
       - name: Create .env file
         run: |
@@ -80,55 +94,89 @@ jobs:
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
           SERVER_USER: ${{ secrets.SERVER_USER }}
         run: |
-          # Создаем директорию на сервере
-          ssh $SERVER_USER@$SERVER_HOST "mkdir -p /opt/law_scraper/{scraper,data}"
+          set -e  # Прерывать при ошибках
           
-          # Исключаем ненужные файлы и копируем через rsync
-          rsync -avz --progress \
-            --exclude '.git' \
-            --exclude 'node_modules' \
-            --exclude '.env' \
-            --exclude 'main' \
-            --exclude '*.md' \
-            ./ $SERVER_USER@$SERVER_HOST:/opt/law_scraper/
+          echo "📁 Создаем директории на сервере..."
+          ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_HOST \
+            "mkdir -p /opt/law_scraper/scraper /opt/law_scraper/data"
           
-          # Копируем .env отдельно
-          scp .env $SERVER_USER@$SERVER_HOST:/opt/law_scraper/.env || echo "⚠️ .env не найден, будет использован существующий на сервере"
+          echo "📦 Копируем файлы на сервер..."
+          
+          # Используем scp для копирования файлов (rsync может быть недоступен)
+          # Копируем основные файлы и директории
+          echo "   → Копируем scraper/..."
+          scp -r -o StrictHostKeyChecking=no ./scraper/* $SERVER_USER@$SERVER_HOST:/opt/law_scraper/scraper/ || {
+            echo "❌ Ошибка копирования scraper/"
+            exit 1
+          }
+          
+          echo "   → Копируем Dockerfile и docker-compose.yml..."
+          scp -o StrictHostKeyChecking=no Dockerfile $SERVER_USER@$SERVER_HOST:/opt/law_scraper/ || true
+          scp -o StrictHostKeyChecking=no docker-compose.yml $SERVER_USER@$SERVER_HOST:/opt/law_scraper/ || true
+          
+          echo "   → Копируем .env..."
+          if [ -f .env ]; then
+            scp -o StrictHostKeyChecking=no .env $SERVER_USER@$SERVER_HOST:/opt/law_scraper/.env || {
+              echo "⚠️ Не удалось скопировать .env"
+            }
+          else
+            echo "⚠️ Файл .env не найден, будет использован существующий на сервере"
+          fi
+          
+          echo "✅ Файлы скопированы!"
+          
+          # Проверяем что файлы скопировались
+          echo "🔍 Проверяем наличие файлов на сервере..."
+          ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_HOST \
+            "ls -la /opt/law_scraper/scraper/go.mod && echo '✅ go.mod найден'" || {
+            echo "❌ Ошибка: go.mod не найден на сервере!"
+            exit 1
+          }
 
       - name: Deploy with Docker Compose
         env:
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
           SERVER_USER: ${{ secrets.SERVER_USER }}
         run: |
-          ssh $SERVER_USER@$SERVER_HOST << 'ENDSSH'
+          ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_HOST bash << 'ENDSSH'
             set -e  # Прерывать выполнение при ошибках
+            set -x  # Показывать выполняемые команды
             
-            cd /opt/law_scraper
+            cd /opt/law_scraper || {
+              echo "❌ Не удалось перейти в /opt/law_scraper"
+              exit 1
+            }
             
             echo "📦 Проверяем и исправляем импорты в Go файлах..."
-            cd scraper
-            # Убеждаемся что импорты правильные (на случай если были старые)
-            if [ -d "internal" ]; then
+            if [ -d "scraper/internal" ]; then
+              cd scraper
               find . -name "*.go" -type f -exec sed -i 's|lawScraper/scraper/internal|github.com/notenoughtea/law_scraper/internal|g' {} + 2>/dev/null || true
               find . -name "*.go" -type f -exec sed -i 's|"lawScraper/|"github.com/notenoughtea/law_scraper/|g' {} + 2>/dev/null || true
+              cd ..
             fi
-            cd ..
             
             echo "🛑 Останавливаем старые контейнеры..."
             docker-compose down || true
             
-            echo "🗑️ Удаляем старые образы..."
+            echo "🗑️ Удаляем старые контейнеры и образы..."
             docker-compose rm -f || true
-            docker image prune -f || true
+            docker system prune -f || true
             
             echo "🔨 Собираем новый образ..."
-            docker-compose build --no-cache
+            if ! docker-compose build --no-cache; then
+              echo "❌ Ошибка сборки Docker образа!"
+              exit 1
+            fi
             
             echo "🚀 Запускаем контейнеры..."
-            docker-compose up -d
+            if ! docker-compose up -d; then
+              echo "❌ Ошибка запуска контейнеров!"
+              docker-compose logs
+              exit 1
+            fi
             
-            echo "⏳ Ждем запуска контейнеров (10 секунд)..."
-            sleep 10
+            echo "⏳ Ждем запуска контейнеров (15 секунд)..."
+            sleep 15
             
             echo "📊 Статус контейнеров:"
             docker-compose ps
@@ -142,14 +190,28 @@ jobs:
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
           SERVER_USER: ${{ secrets.SERVER_USER }}
         run: |
-          sleep 10
-          ssh $SERVER_USER@$SERVER_HOST << 'ENDSSH'
+          sleep 5
+          ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_HOST bash << 'ENDSSH'
+            set -e
+            
             cd /opt/law_scraper
+            
+            echo "🔍 Проверяем статус контейнеров..."
             if docker-compose ps | grep -q "Up"; then
               echo "✅ Deployment successful!"
+              echo ""
+              echo "📊 Статус контейнеров:"
               docker-compose ps
+              echo ""
+              echo "📋 Последние логи:"
+              docker-compose logs --tail=30
             else
               echo "❌ Deployment failed!"
+              echo ""
+              echo "📊 Статус контейнеров:"
+              docker-compose ps
+              echo ""
+              echo "📋 Полные логи:"
               docker-compose logs --tail=100
               exit 1
             fi
