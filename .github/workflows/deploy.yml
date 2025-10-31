@@ -1,7 +1,12 @@
-name: Deploy to Production
+name: CI/CD Pipeline
 
 on:
   push:
+    branches:
+      - main
+      - master
+    # Запускается при любом коммите в main/master
+  pull_request:
     branches:
       - main
       - master
@@ -19,6 +24,12 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.24'
+      
+      - name: Download dependencies
+        working-directory: ./scraper
+        run: |
+          go mod download
+          go mod verify
 
       - name: Run tests
         working-directory: ./scraper
@@ -60,6 +71,8 @@ jobs:
           TELEGRAM_SEND_AS_DOCUMENT=true
           CRON_SCHEDULE=${{ secrets.CRON_SCHEDULE }}
           RUN_ON_START=false
+          PROJECT_ROOT=/app
+          MAX_WORKERS=${{ secrets.MAX_WORKERS }}
           EOF
 
       - name: Copy files to server
@@ -68,13 +81,19 @@ jobs:
           SERVER_USER: ${{ secrets.SERVER_USER }}
         run: |
           # Создаем директорию на сервере
-          ssh $SERVER_USER@$SERVER_HOST "mkdir -p /opt/law_scraper"
+          ssh $SERVER_USER@$SERVER_HOST "mkdir -p /opt/law_scraper/{scraper,data}"
           
-          # Копируем файлы
-          scp -r ./* $SERVER_USER@$SERVER_HOST:/opt/law_scraper/
+          # Исключаем ненужные файлы и копируем через rsync
+          rsync -avz --progress \
+            --exclude '.git' \
+            --exclude 'node_modules' \
+            --exclude '.env' \
+            --exclude 'main' \
+            --exclude '*.md' \
+            ./ $SERVER_USER@$SERVER_HOST:/opt/law_scraper/
           
-          # Копируем .env
-          scp .env $SERVER_USER@$SERVER_HOST:/opt/law_scraper/.env
+          # Копируем .env отдельно
+          scp .env $SERVER_USER@$SERVER_HOST:/opt/law_scraper/.env || echo "⚠️ .env не найден, будет использован существующий на сервере"
 
       - name: Deploy with Docker Compose
         env:
@@ -82,24 +101,39 @@ jobs:
           SERVER_USER: ${{ secrets.SERVER_USER }}
         run: |
           ssh $SERVER_USER@$SERVER_HOST << 'ENDSSH'
+            set -e  # Прерывать выполнение при ошибках
+            
             cd /opt/law_scraper
             
-            # Останавливаем старые контейнеры
+            echo "📦 Проверяем и исправляем импорты в Go файлах..."
+            cd scraper
+            # Убеждаемся что импорты правильные (на случай если были старые)
+            if [ -d "internal" ]; then
+              find . -name "*.go" -type f -exec sed -i 's|lawScraper/scraper/internal|github.com/notenoughtea/law_scraper/internal|g' {} + 2>/dev/null || true
+              find . -name "*.go" -type f -exec sed -i 's|"lawScraper/|"github.com/notenoughtea/law_scraper/|g' {} + 2>/dev/null || true
+            fi
+            cd ..
+            
+            echo "🛑 Останавливаем старые контейнеры..."
             docker-compose down || true
             
-            # Удаляем старые образы
+            echo "🗑️ Удаляем старые образы..."
             docker-compose rm -f || true
+            docker image prune -f || true
             
-            # Собираем новый образ
-            docker-compose build
+            echo "🔨 Собираем новый образ..."
+            docker-compose build --no-cache
             
-            # Запускаем контейнеры
+            echo "🚀 Запускаем контейнеры..."
             docker-compose up -d
             
-            # Показываем статус
+            echo "⏳ Ждем запуска контейнеров (10 секунд)..."
+            sleep 10
+            
+            echo "📊 Статус контейнеров:"
             docker-compose ps
             
-            # Показываем последние логи
+            echo "📋 Последние логи:"
             docker-compose logs --tail=50
           ENDSSH
 
