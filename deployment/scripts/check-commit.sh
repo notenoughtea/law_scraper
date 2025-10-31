@@ -26,11 +26,11 @@ if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "$SERVER_USER@$SERVER_HOS
     
     REMOTE_HASH=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
         "$SERVER_USER@$SERVER_HOST" \
-        "cd $SERVER_DIR && git rev-parse HEAD 2>/dev/null" 2>/dev/null)
+        "cd $SERVER_DIR && git rev-parse HEAD 2>&1 | grep -v 'fatal:' | head -1" 2>/dev/null | grep -E '^[a-f0-9]{40}$' || echo "")
     
     if [ -n "$REMOTE_HASH" ]; then
         ssh -o StrictHostKeyChecking=no "$SERVER_USER@$SERVER_HOST" \
-            "cd $SERVER_DIR && git log -1 --pretty=format:'  Хеш: %H%n  Автор: %an <%ae>%n  Дата: %ad%n  Сообщение: %s' --date=format:'%Y-%m-%d %H:%M:%S'"
+            "cd $SERVER_DIR && git log -1 --pretty=format:'  Хеш: %H%n  Автор: %an <%ae>%n  Дата: %ad%n  Сообщение: %s' --date=format:'%Y-%m-%d %H:%M:%S' 2>&1 | grep -v 'fatal:'" 2>/dev/null || echo "  ⚠️  Не удалось получить информацию из git"
         echo ""
     else
         echo "  ⚠️  Не удалось получить коммит"

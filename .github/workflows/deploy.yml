@@ -167,13 +167,14 @@ jobs:
 
       - name: Create deployment info file
         run: |
+          COMMIT_MSG=$(git log -1 --pretty=format:'%s' 2>/dev/null | sed "s/'/\\'/g" | sed 's/"/\\"/g' || echo 'N/A')
           cat > .deployment_info << EOF
-          COMMIT_HASH=${{ github.sha }}
-          COMMIT_AUTHOR=${{ github.actor }}
-          COMMIT_MESSAGE=$(git log -1 --pretty=format:'%s' 2>/dev/null || echo 'N/A')
-          DEPLOY_DATE=$(date -u +'%Y-%m-%d %H:%M:%S UTC')
-          BRANCH=${{ github.ref_name }}
-          WORKFLOW_RUN=${{ github.run_number }}
+          COMMIT_HASH="${{ github.sha }}"
+          COMMIT_AUTHOR="${{ github.actor }}"
+          COMMIT_MESSAGE="$COMMIT_MSG"
+          DEPLOY_DATE="$(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          BRANCH="${{ github.ref_name }}"
+          WORKFLOW_RUN="${{ github.run_number }}"
           EOF
 
       - name: Copy files to server

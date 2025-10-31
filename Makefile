@@ -108,6 +108,36 @@ restart-server: ## Перезапустить приложение на серв
 	@chmod +x deployment/scripts/restart.sh
 	@./deployment/scripts/restart.sh
 
+add-ssh-key: ## Добавить публичный SSH ключ на сервер
+	@echo "📤 Добавление публичного SSH ключа на сервер..."
+	@chmod +x deployment/scripts/add-ssh-key.sh
+	@./deployment/scripts/add-ssh-key.sh
+
+update-deployment-info: ## Создать и отправить .deployment_info на сервер
+	@echo "📦 Создание файла .deployment_info..."
+	@if ! git rev-parse --git-dir > /dev/null 2>&1; then \
+		echo "❌ Не git репозиторий"; \
+		exit 1; \
+	fi
+	@COMMIT_HASH=$$(git rev-parse HEAD); \
+	COMMIT_AUTHOR=$$(git log -1 --pretty=format:'%an <%ae>' | sed 's/"/\\"/g'); \
+	COMMIT_MESSAGE=$$(git log -1 --pretty=format:'%s' | sed 's/"/\\"/g' | sed "s/'/\\'/g"); \
+	DEPLOY_DATE=$$(date -u +'%Y-%m-%d %H:%M:%S UTC'); \
+	BRANCH=$$(git branch --show-current || git rev-parse --abbrev-ref HEAD | sed 's/"/\\"/g'); \
+	echo "COMMIT_HASH=\"$$COMMIT_HASH\"" > .deployment_info; \
+	echo "COMMIT_AUTHOR=\"$$COMMIT_AUTHOR\"" >> .deployment_info; \
+	echo "COMMIT_MESSAGE=\"$$COMMIT_MESSAGE\"" >> .deployment_info; \
+	echo "DEPLOY_DATE=\"$$DEPLOY_DATE\"" >> .deployment_info; \
+	echo "BRANCH=\"$$BRANCH\"" >> .deployment_info; \
+	echo "WORKFLOW_RUN=\"manual\"" >> .deployment_info; \
+	echo "✅ Файл .deployment_info создан:"; \
+	cat .deployment_info; \
+	echo ""; \
+	echo "📤 Копируем на сервер..."; \
+	scp -o StrictHostKeyChecking=no .deployment_info root@77.105.133.231:/opt/law_scraper/.deployment_info && \
+	echo "✅ Файл успешно скопирован на сервер!" || \
+	(echo "❌ Ошибка копирования"; exit 1)
+
 check-commit: ## Проверить последний ли коммит на сервере
 	@echo "🔍 Проверка последнего коммита на сервере..."
 	@echo ""
@@ -119,43 +149,7 @@ check-commit: ## Проверить последний ли коммит на с
 	fi
 	@echo ""
 	@echo "📋 На сервере (77.105.133.231):"
-	@SSH_OUTPUT=$$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes root@77.105.133.231 \
-		"cd /opt/law_scraper 2>/dev/null && \
-		if [ -d .git ]; then \
-			echo 'GIT_FOUND'; \
-			git log -1 --pretty=format:'  Хеш: %H%n  Автор: %an <%ae>%n  Дата: %ad%n  Сообщение: %s' --date=format:'%Y-%m-%d %H:%M:%S' 2>/dev/null; \
-		elif [ -d scraper ]; then \
-			echo 'NO_GIT'; \
-			echo '  📁 Git репозиторий не найден на сервере'; \
-			if [ -f .deployment_info ]; then \
-				echo '  📦 Информация о деплое:'; \
-				. .deployment_info 2>/dev/null; \
-				if [ -n "$$COMMIT_HASH" ]; then \
-					echo "    Хеш коммита: $$COMMIT_HASH"; \
-				fi; \
-				if [ -n "$$COMMIT_AUTHOR" ]; then \
-					echo "    Автор: $$COMMIT_AUTHOR"; \
-				fi; \
-				if [ -n "$$DEPLOY_DATE" ]; then \
-					echo "    Дата деплоя: $$DEPLOY_DATE"; \
-				fi; \
-				if [ -n "$$COMMIT_MESSAGE" ]; then \
-					echo "    Сообщение: $$COMMIT_MESSAGE"; \
-				fi; \
-				if [ -n "$$BRANCH" ]; then \
-					echo "    Ветка: $$BRANCH"; \
-				fi; \
-			else \
-				echo '  ⚠️  Файл .deployment_info не найден'; \
-			fi; \
-			echo '  📋 Проверка версии через Docker:'; \
-			if command -v docker-compose > /dev/null 2>&1; then \
-				docker-compose ps 2>/dev/null | grep -q "Up" && echo '    ✅ Контейнеры запущены' || echo '    ⚠️  Контейнеры не запущены'; \
-			fi; \
-		else \
-			echo 'NO_DIR'; \
-			echo '  ❌ Директория /opt/law_scraper не найдена'; \
-		fi" 2>&1); \
+	@SSH_OUTPUT=$$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes root@77.105.133.231 'cd /opt/law_scraper 2>/dev/null && if [ -d .git ]; then echo "GIT_FOUND"; git log -1 --pretty=format:"  Хеш: %H%n  Автор: %an <%ae>%n  Дата: %ad%n  Сообщение: %s" --date=format:"%Y-%m-%d %H:%M:%S" 2>/dev/null; elif [ -d scraper ]; then echo "NO_GIT"; echo "  📁 Git репозиторий не найден на сервере"; if [ -f .deployment_info ]; then echo "  📦 Информация о деплое:"; COMMIT_HASH_VAL=$$(grep "^COMMIT_HASH=" .deployment_info 2>/dev/null | cut -d"=" -f2- | sed "s/^\"//; s/\"\$$//"); COMMIT_AUTHOR_VAL=$$(grep "^COMMIT_AUTHOR=" .deployment_info 2>/dev/null | cut -d"=" -f2- | sed "s/^\"//; s/\"\$$//"); DEPLOY_DATE_VAL=$$(grep "^DEPLOY_DATE=" .deployment_info 2>/dev/null | cut -d"=" -f2- | sed "s/^\"//; s/\"\$$//"); COMMIT_MESSAGE_VAL=$$(grep "^COMMIT_MESSAGE=" .deployment_info 2>/dev/null | cut -d"=" -f2- | sed "s/^\"//; s/\"\$$//"); BRANCH_VAL=$$(grep "^BRANCH=" .deployment_info 2>/dev/null | cut -d"=" -f2- | sed "s/^\"//; s/\"\$$//"); [ -n "$$COMMIT_HASH_VAL" ] && echo "    Хеш коммита: $$COMMIT_HASH_VAL"; [ -n "$$COMMIT_AUTHOR_VAL" ] && echo "    Автор: $$COMMIT_AUTHOR_VAL"; [ -n "$$DEPLOY_DATE_VAL" ] && echo "    Дата деплоя: $$DEPLOY_DATE_VAL"; [ -n "$$COMMIT_MESSAGE_VAL" ] && echo "    Сообщение: $$COMMIT_MESSAGE_VAL"; [ -n "$$BRANCH_VAL" ] && echo "    Ветка: $$BRANCH_VAL"; else echo "  ⚠️  Файл .deployment_info не найден"; fi; echo "  📋 Проверка версии через Docker:"; if command -v docker-compose > /dev/null 2>&1; then docker-compose ps 2>/dev/null | grep -q "Up" && echo "    ✅ Контейнеры запущены" || echo "    ⚠️  Контейнеры не запущены"; fi; else echo "NO_DIR"; echo "  ❌ Директория /opt/law_scraper не найдена"; fi' 2>&1); \
 	SSH_EXIT=$$?; \
 	if [ $$SSH_EXIT -eq 0 ]; then \
 		echo "$$SSH_OUTPUT"; \
@@ -177,32 +171,23 @@ check-commit: ## Проверить последний ли коммит на с
 	@echo "🔍 Сравнение:"
 	@LOCAL_HASH=$$(git rev-parse HEAD 2>/dev/null); \
 	if [ -n "$$LOCAL_HASH" ]; then \
-		REMOTE_GIT_HASH=$$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes root@77.105.133.231 \
-			"cd /opt/law_scraper && git rev-parse HEAD 2>/dev/null" 2>/dev/null 2>&1); \
-		REMOTE_DEPLOY_HASH=$$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes root@77.105.133.231 \
-			"cd /opt/law_scraper && [ -f .deployment_info ] && . .deployment_info && echo \$$COMMIT_HASH" 2>/dev/null 2>&1); \
-		if [ -n "$$REMOTE_GIT_HASH" ]; then \
-			REMOTE_HASH=$$REMOTE_GIT_HASH; \
-		elif [ -n "$$REMOTE_DEPLOY_HASH" ]; then \
-			REMOTE_HASH=$$REMOTE_DEPLOY_HASH; \
-		else \
-			REMOTE_HASH=""; \
-		fi; \
-		if [ -n "$$REMOTE_HASH" ] && [ "$$REMOTE_HASH" != "$$LOCAL_HASH" ]; then \
-			echo "  ⚠️  Коммиты отличаются:"; \
-			echo "     Локальный:  $$LOCAL_HASH"; \
-			echo "     На сервере: $$REMOTE_HASH"; \
-			echo ""; \
-			echo "  💡 Для обновления: make deploy"; \
-		elif [ -n "$$REMOTE_HASH" ] && [ "$$REMOTE_HASH" = "$$LOCAL_HASH" ]; then \
-			echo "  ✅ Коммиты совпадают - на сервере последняя версия!"; \
-		else \
+		chmod +x deployment/scripts/get-commit-hash.sh 2>/dev/null; \
+		REMOTE_HASH=$$(./deployment/scripts/get-commit-hash.sh 2>/dev/null); \
+		if [ -z "$$REMOTE_HASH" ]; then \
 			echo "  ⚠️  Не удалось получить коммит с сервера"; \
 			echo "     Локальный: $$LOCAL_HASH"; \
 			echo ""; \
 			echo "  💡 Возможные причины:"; \
 			echo "     - На сервере нет git репозитория и файла .deployment_info"; \
 			echo "     - Проблемы с SSH подключением"; \
+			echo "  💡 Для обновления: make deploy"; \
+		elif [ "$$REMOTE_HASH" = "$$LOCAL_HASH" ]; then \
+			echo "  ✅ Коммиты совпадают - на сервере последняя версия!"; \
+		else \
+			echo "  ⚠️  Коммиты отличаются:"; \
+			echo "     Локальный:  $$LOCAL_HASH"; \
+			echo "     На сервере: $$REMOTE_HASH"; \
+			echo ""; \
 			echo "  💡 Для обновления: make deploy"; \
 		fi; \
 	else \
