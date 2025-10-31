@@ -88,6 +88,17 @@ jobs:
           PROJECT_ROOT=/app
           MAX_WORKERS=${{ secrets.MAX_WORKERS }}
           EOF
+      
+      - name: Create deployment info file
+        run: |
+          cat > .deployment_info << EOF
+          COMMIT_HASH=${{ github.sha }}
+          COMMIT_AUTHOR=${{ github.actor }}
+          COMMIT_MESSAGE=$(git log -1 --pretty=format:'%s' 2>/dev/null || echo 'N/A')
+          DEPLOY_DATE=$(date -u +'%Y-%m-%d %H:%M:%S UTC')
+          BRANCH=${{ github.ref_name }}
+          WORKFLOW_RUN=${{ github.run_number }}
+          EOF
 
       - name: Copy files to server
         env:
@@ -121,6 +132,13 @@ jobs:
             }
           else
             echo "⚠️ Файл .env не найден, будет использован существующий на сервере"
+          fi
+          
+          echo "   → Копируем .deployment_info..."
+          if [ -f .deployment_info ]; then
+            scp -o StrictHostKeyChecking=no .deployment_info $SERVER_USER@$SERVER_HOST:/opt/law_scraper/.deployment_info || {
+              echo "⚠️ Не удалось скопировать .deployment_info"
+            }
           fi
           
           echo "✅ Файлы скопированы!"
