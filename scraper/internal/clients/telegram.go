@@ -7,6 +7,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"strings"
 
 	"github.com/notenoughtea/law_scraper/internal/config"
 	"github.com/notenoughtea/law_scraper/internal/logger"
@@ -20,11 +21,11 @@ type TelegramMessage struct {
 
 func SendTelegramMessage(message string) error {
 	logger.Log.Info("=== Начало отправки сообщения в Telegram ===")
-	
+
 	token := config.GetTelegramToken()
 	chatID := config.GetTelegramChatID()
 
-	logger.Log.Infof("Проверка конфигурации: Token=%s, ChatID=%s", 
+	logger.Log.Infof("Проверка конфигурации: Token=%s, ChatID=%s",
 		maskToken(token), chatID)
 
 	if token == "" || chatID == "" {
@@ -42,7 +43,7 @@ func SendTelegramMessage(message string) error {
 		ParseMode: "HTML",
 	}
 
-	logger.Log.Infof("Формирование сообщения: ChatID=%s, Длина текста=%d, ParseMode=%s", 
+	logger.Log.Infof("Формирование сообщения: ChatID=%s, Длина текста=%d, ParseMode=%s",
 		chatID, len(message), "HTML")
 	logger.Log.Debugf("Текст сообщения: %s", message)
 
@@ -70,7 +71,7 @@ func SendTelegramMessage(message string) error {
 	}
 	defer resp.Body.Close()
 
-	logger.Log.Infof("Получен ответ от Telegram API: Status=%d (%s)", 
+	logger.Log.Infof("Получен ответ от Telegram API: Status=%d (%s)",
 		resp.StatusCode, resp.Status)
 
 	body, readErr := io.ReadAll(resp.Body)
@@ -101,12 +102,12 @@ func maskToken(token string) string {
 	return token[:4] + "..." + token[len(token)-4:]
 }
 
-func SendFileURLWithKeywords(fileURL string, keywords []string, pubDate string, title string, description string) error {
+func SendFileURLWithKeywords(projectURL string, fileURL string, keywords []string, pubDate string, title string, description string) error {
 	logger.Log.Infof("📤 Подготовка отправки уведомления для файла: %s", fileURL)
 	logger.Log.Infof("Найдено ключевых слов: %d (%v)", len(keywords), keywords)
 	logger.Log.Infof("Дата публикации: %s", pubDate)
 	logger.Log.Infof("Заголовок: %s", title)
-	
+
 	keywordsStr := ""
 	if len(keywords) > 0 {
 		keywordsStr = keywords[0]
@@ -114,27 +115,38 @@ func SendFileURLWithKeywords(fileURL string, keywords []string, pubDate string, 
 			keywordsStr += ", " + keywords[i]
 		}
 	}
-	
+
 	// Проверка: если ключевые слова не найдены, показываем предупреждение
 	if keywordsStr == "" {
 		keywordsStr = "не указаны"
 		logger.Log.Warnf("⚠️  Ключевые слова не переданы в уведомление для %s", fileURL)
 	}
 
+	projectSection := ""
+	if projectURL != "" {
+		projectSection = fmt.Sprintf("🌐 <b>Проект:</b> <a href=\"%s\">Открыть проект</a>\n\n", projectURL)
+	}
+	descLooksLikeProjectID := strings.Contains(strings.ToLower(description), "id проекта")
+	skipDescription := descLooksLikeProjectID && projectURL != ""
+
 	// Формируем caption для документа
 	// Важно: ключевые слова должны быть всегда, поэтому добавляем их сначала
 	caption := "🔍 <b>Найдено совпадение</b>\n\n"
-	
+
 	// Сначала добавляем ключевые слова (они важнее всего)
 	if keywordsStr != "" {
 		caption += fmt.Sprintf("🔑 <b>Ключевые слова:</b> %s\n\n", keywordsStr)
 	}
-	
+
+	if projectSection != "" {
+		caption += projectSection
+	}
+
 	if title != "" {
 		caption += fmt.Sprintf("📋 <b>%s</b>\n\n", title)
 	}
-	
-	if description != "" {
+
+	if description != "" && !skipDescription {
 		// Ограничиваем длину description до 30 символов
 		maxDescLen := 30
 		desc := description
@@ -143,34 +155,34 @@ func SendFileURLWithKeywords(fileURL string, keywords []string, pubDate string, 
 		}
 		caption += fmt.Sprintf("📝 %s\n\n", desc)
 	}
-	
+
 	if pubDate != "" {
 		caption += fmt.Sprintf("📅 <b>Дата:</b> %s", pubDate)
 	}
 
 	// Ограничиваем общую длину caption до 1024 символов (лимит Telegram)
-	// Ключевые слова НИКОГДА не обрезаем - они важнее всего
+	// Ключевые слова и ссылка на проект имеют приоритет
 	if len(caption) > 1024 {
-		// Сохраняем ключевые слова отдельно
 		keywordsSection := ""
 		if keywordsStr != "" {
 			keywordsSection = fmt.Sprintf("🔑 <b>Ключевые слова:</b> %s\n\n", keywordsStr)
 		}
-		
-		// Пересобираем с ограничением title и description, но оставляем ключевые слова
-		baseSize := len("🔍 <b>Найдено совпадение</b>\n\n") + len(keywordsSection) + 50 // 50 для форматирования и даты
-		maxAvailable := 1024 - baseSize - 100 // оставляем большой запас для даты и форматирования
-		
+		projectSectionLimited := projectSection
+
+		// Пересобираем с ограничением title и description, но оставляем ключевые слова и проект
+		baseSize := len("🔍 <b>Найдено совпадение</b>\n\n") + len(keywordsSection) + len(projectSectionLimited) + 50 // 50 для форматирования и даты
+		maxAvailable := 1024 - baseSize - 100                                                                       // оставляем запас для даты и форматирования
+
 		if maxAvailable < 100 {
-			// Если совсем мало места, оставляем только ключевые слова
-			caption = "🔍 <b>Найдено совпадение</b>\n\n" + keywordsSection
+			// Если совсем мало места, оставляем только ключевые слова и ссылку на проект
+			caption = "🔍 <b>Найдено совпадение</b>\n\n" + keywordsSection + projectSectionLimited
 			if pubDate != "" {
 				caption += fmt.Sprintf("📅 <b>Дата:</b> %s", pubDate)
 			}
 		} else {
 			// Пересобираем с ограничением title и description
-			caption = "🔍 <b>Найдено совпадение</b>\n\n" + keywordsSection
-			
+			caption = "🔍 <b>Найдено совпадение</b>\n\n" + keywordsSection + projectSectionLimited
+
 			if title != "" {
 				titleText := title
 				if len(titleText) > maxAvailable/2 {
@@ -179,8 +191,8 @@ func SendFileURLWithKeywords(fileURL string, keywords []string, pubDate string, 
 				caption += fmt.Sprintf("📋 <b>%s</b>\n\n", titleText)
 				maxAvailable -= len(titleText)
 			}
-			
-			if description != "" && maxAvailable > 30 {
+
+			if description != "" && maxAvailable > 30 && !skipDescription {
 				desc := description
 				if len(desc) > maxAvailable {
 					desc = desc[:maxAvailable-3] + "..."
@@ -189,39 +201,39 @@ func SendFileURLWithKeywords(fileURL string, keywords []string, pubDate string, 
 				}
 				caption += fmt.Sprintf("📝 %s\n\n", desc)
 			}
-			
+
 			if pubDate != "" {
 				caption += fmt.Sprintf("📅 <b>Дата:</b> %s", pubDate)
 			}
 		}
-		
-		// Финальная проверка: если все равно не помещается (крайне редко), обрезаем все кроме ключевых слов
+
+		// Финальная проверка: если все равно не помещается, оставляем только важные части
 		if len(caption) > 1024 {
-			// Оставляем только базовую структуру + ключевые слова
-			caption = "🔍 <b>Найдено совпадение</b>\n\n" + keywordsSection
+			caption = "🔍 <b>Найдено совпадение</b>\n\n" + keywordsSection + projectSectionLimited
 			if pubDate != "" {
 				datePart := fmt.Sprintf("📅 <b>Дата:</b> %s", pubDate)
 				if len(caption)+len(datePart) <= 1024 {
 					caption += datePart
 				}
 			}
-			
-			// Если все равно не помещается (ключевые слова слишком длинные), обрезаем только их немного
+
 			if len(caption) > 1024 && keywordsStr != "" {
-				// Оставляем место для базовой структуры
-				maxKeywordsLen := 1024 - len("🔍 <b>Найдено совпадение</b>\n\n🔑 <b>Ключевые слова:</b> \n\n") - 50
-				if len(keywordsStr) > maxKeywordsLen {
+				maxKeywordsLen := 1024 - len("🔍 <b>Найдено совпадение</b>\n\n🔑 <b>Ключевые слова:</b> \n\n") - len(projectSectionLimited) - 50
+				if maxKeywordsLen < 0 {
+					maxKeywordsLen = 0
+				}
+				if len(keywordsStr) > maxKeywordsLen && maxKeywordsLen > 3 {
 					keywordsStr = keywordsStr[:maxKeywordsLen-3] + "..."
 				}
-				caption = "🔍 <b>Найдено совпадение</b>\n\n"
-				caption += fmt.Sprintf("🔑 <b>Ключевые слова:</b> %s", keywordsStr)
+				keywordsSection = fmt.Sprintf("🔑 <b>Ключевые слова:</b> %s\n\n", keywordsStr)
+				caption = "🔍 <b>Найдено совпадение</b>\n\n" + keywordsSection + projectSectionLimited
 			}
 		}
 	}
 
 	// Проверяем режим отправки (отправлять ли файл напрямую)
 	sendAsDocument := config.GetTelegramSendAsDocument()
-	
+
 	if sendAsDocument {
 		logger.Log.Info("Режим: отправка файла как документ в Telegram")
 		// Отправляем файл напрямую как документ
@@ -230,21 +242,25 @@ func SendFileURLWithKeywords(fileURL string, keywords []string, pubDate string, 
 
 	// Режим по умолчанию: отправка ссылки на файл
 	logger.Log.Info("Режим: отправка ссылки на файл")
-	
+
 	message := "🔍 <b>Найдено совпадение</b>\n\n"
-	
+
 	// Сначала добавляем ключевые слова (они важнее всего)
 	if keywordsStr != "" {
 		message += fmt.Sprintf("🔑 <b>Ключевые слова:</b> %s\n\n", keywordsStr)
 	}
-	
+
 	if title != "" {
 		message += fmt.Sprintf("📋 <b>%s</b>\n\n", title)
 	}
-	
+
 	message += fmt.Sprintf("📄 <b>Файл:</b> <a href=\"%s\">Скачать документ</a>\n", fileURL)
-	
-	if description != "" {
+
+	if projectSection != "" {
+		message += projectSection
+	}
+
+	if description != "" && !skipDescription {
 		// Ограничиваем длину description до 30 символов
 		maxDescLen := 30
 		desc := description
@@ -253,24 +269,24 @@ func SendFileURLWithKeywords(fileURL string, keywords []string, pubDate string, 
 		}
 		message += fmt.Sprintf("📝 %s\n\n", desc)
 	}
-	
+
 	if pubDate != "" {
 		message += fmt.Sprintf("📅 <b>Дата:</b> %s", pubDate)
 	}
-	
+
 	// Добавляем инструкцию о расширении файла
 	if !hasExtension(fileURL) {
 		message += "\n\n💡 <i>После скачивания переименуйте файл, добавив расширение .docx</i>"
 	}
 
 	logger.Log.Infof("Сформированное сообщение для отправки (длина: %d символов)", len(message))
-	
+
 	err := SendTelegramMessage(message)
 	if err != nil {
 		logger.Log.Errorf("❌ Ошибка отправки уведомления для %s: %v", fileURL, err)
 		return err
 	}
-	
+
 	logger.Log.Infof("✅ Уведомление для %s отправлено успешно", fileURL)
 	return nil
 }
@@ -297,7 +313,7 @@ func SendDocumentToTelegram(fileURL string, caption string) error {
 	}
 
 	logger.Log.Infof("Скачивание файла с %s...", fileURL)
-	
+
 	// Скачиваем файл
 	resp, err := http.Get(fileURL)
 	if err != nil {
@@ -325,7 +341,7 @@ func SendDocumentToTelegram(fileURL string, caption string) error {
 
 	// Добавляем chat_id
 	_ = writer.WriteField("chat_id", chatID)
-	
+
 	// Добавляем caption
 	if caption != "" {
 		_ = writer.WriteField("caption", caption)
@@ -337,7 +353,7 @@ func SendDocumentToTelegram(fileURL string, caption string) error {
 	if err != nil {
 		return fmt.Errorf("ошибка создания form file: %w", err)
 	}
-	
+
 	if _, err := part.Write(fileData); err != nil {
 		return fmt.Errorf("ошибка записи файла: %w", err)
 	}
@@ -353,7 +369,7 @@ func SendDocumentToTelegram(fileURL string, caption string) error {
 
 	client := &http.Client{}
 	logger.Log.Info("Отправка документа в Telegram...")
-	
+
 	apiResp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("ошибка отправки документа: %w", err)
@@ -361,7 +377,7 @@ func SendDocumentToTelegram(fileURL string, caption string) error {
 	defer apiResp.Body.Close()
 
 	respBody, _ := io.ReadAll(apiResp.Body)
-	
+
 	if apiResp.StatusCode != http.StatusOK {
 		logger.Log.Errorf("❌ Ошибка Telegram API: %s, тело: %s", apiResp.Status, string(respBody))
 		return fmt.Errorf("telegram api вернул ошибку: %s", apiResp.Status)
@@ -370,4 +386,3 @@ func SendDocumentToTelegram(fileURL string, caption string) error {
 	logger.Log.Info("✅ Документ успешно отправлен в Telegram")
 	return nil
 }
-

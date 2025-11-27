@@ -38,13 +38,13 @@ func getMaxWorkers() int {
 
 // fileTask представляет задачу на обработку одного файла
 type fileTask struct {
-	fileURL   string
-	projectURL string
-	projectID string
-	pubDate   string
-	title     string
+	fileURL     string
+	projectURL  string
+	projectID   string
+	pubDate     string
+	title       string
 	description string
-	keywords  []string
+	keywords    []string
 }
 
 // ScanRSSAndProjectsParallel выполняет параллельное сканирование с отправкой уведомлений сразу
@@ -88,14 +88,14 @@ func ScanRSSAndProjectsParallel(rssURL string) (int, error) {
 
 	// Канал для задач на обработку файлов
 	tasksChan := make(chan fileTask, 100)
-	
+
 	// WaitGroup для синхронизации воркеров
 	var wg sync.WaitGroup
-	
+
 	// Счетчик найденных совпадений
 	var matchesCount int64
 	var matchesMutex sync.Mutex
-	
+
 	// Запускаем воркеры для обработки файлов
 	for i := 0; i < maxWorkers; i++ {
 		wg.Add(1)
@@ -104,7 +104,7 @@ func ScanRSSAndProjectsParallel(rssURL string) (int, error) {
 
 	// Собираем все задачи (файлы для обработки)
 	totalTasks := 0
-	
+
 	// Обрабатываем каждый новый элемент RSS
 	for _, it := range newItems {
 		pageURL := it.Link
@@ -118,12 +118,14 @@ func ScanRSSAndProjectsParallel(rssURL string) (int, error) {
 		// Проверяем страницу на наличие ключевых слов
 		var foundPage []string
 		for _, kw := range keywords {
-			if kw == "" { continue }
+			if kw == "" {
+				continue
+			}
 			if strings.Contains(lowerHTML, kw) {
 				foundPage = append(foundPage, kw)
 			}
 		}
-		
+
 		if len(foundPage) > 0 {
 			// Найдено совпадение на странице - отправляем сразу
 			logger.Log.Infof("✅ Найдено совпадение на странице %s: %v", pageURL, foundPage)
@@ -166,23 +168,23 @@ func ScanRSSAndProjectsParallel(rssURL string) (int, error) {
 
 	// Ждем завершения всех воркеров
 	wg.Wait()
-	
+
 	matchesMutex.Lock()
 	count := int(matchesCount)
 	matchesMutex.Unlock()
-	
+
 	logger.Log.Infof("✅ Все файлы обработаны. Найдено совпадений: %d", count)
-	
+
 	return count, nil
 }
 
 // fileWorker обрабатывает файлы из канала задач
 func fileWorker(workerID int, tasksChan <-chan fileTask, keywords []string, wg *sync.WaitGroup, matchesCount *int64, matchesMutex *sync.Mutex) {
 	defer wg.Done()
-	
+
 	for task := range tasksChan {
 		logger.Log.Infof("👷 Воркер %d обрабатывает файл: %s", workerID, task.fileURL)
-		
+
 		// Загружаем файл
 		data, err := fetch(task.fileURL)
 		if err != nil {
@@ -202,7 +204,9 @@ func fileWorker(workerID int, tasksChan <-chan fileTask, keywords []string, wg *
 		lower := []byte(textLower)
 		var found []string
 		for _, kw := range keywords {
-			if kw == "" { continue }
+			if kw == "" {
+				continue
+			}
 			if bytes.Contains(lower, []byte(kw)) {
 				found = append(found, kw)
 			}
@@ -219,7 +223,7 @@ func fileWorker(workerID int, tasksChan <-chan fileTask, keywords []string, wg *
 		// Небольшая задержка между файлами для снижения нагрузки
 		time.Sleep(100 * time.Millisecond)
 	}
-	
+
 	logger.Log.Infof("👷 Воркер %d завершил работу", workerID)
 }
 
@@ -229,35 +233,36 @@ func sendNotificationImmediately(projectURL, fileURL string, keywords []string, 
 	logger.Log.Infof("📤 Отправка уведомления для %s", fileURL)
 	logger.Log.Infof("   Ключевые слова: %v (количество: %d)", keywords, len(keywords))
 	logger.Log.Infof("   Заголовок: %s", title)
-	
+
 	// Проверка: если keywords пустой, логируем предупреждение
 	if len(keywords) == 0 {
 		logger.Log.Warnf("⚠️  Ключевые слова пустые для файла %s! Это не должно происходить.", fileURL)
 	}
-	
+
 	// Увеличиваем счетчик совпадений
 	matchesMutex.Lock()
 	*matchesCount++
 	count := *matchesCount
 	matchesMutex.Unlock()
-	
+
 	// Сохраняем в файл для отслеживания (опционально)
 	if fileURL != projectURL {
 		// Только для файлов, не для страниц
 		fileData := repository.FileURLWithKeywords{
 			URL:         fileURL,
+			ProjectURL:  projectURL,
 			Keywords:    keywords,
 			PubDate:     pubDate,
 			Title:       title,
 			Description: description,
 		}
-		
+
 		// Добавляем в файл (аппенд) - с защитой от race condition
 		appendToFileURLs(fileData)
 	}
 
 	// Отправляем уведомление сразу
-	if err := clients.SendFileURLWithKeywords(fileURL, keywords, pubDate, title, description); err != nil {
+	if err := clients.SendFileURLWithKeywords(projectURL, fileURL, keywords, pubDate, title, description); err != nil {
 		logger.Log.Errorf("❌ Ошибка отправки уведомления для %s: %v", fileURL, err)
 	} else {
 		logger.Log.Infof("✅ Уведомление #%d отправлено для %s (ключевые слова: %v)", count, fileURL, keywords)
@@ -271,13 +276,13 @@ var fileURLsMutex sync.Mutex
 func appendToFileURLs(file repository.FileURLWithKeywords) {
 	fileURLsMutex.Lock()
 	defer fileURLsMutex.Unlock()
-	
+
 	// Загружаем существующий список
 	existing, _ := loadFileURLs()
-	
+
 	// Добавляем новый файл
 	existing = append(existing, file)
-	
+
 	// Сохраняем обратно
 	if err := repository.SaveFileURLs(existing); err != nil {
 		logger.Log.Warnf("Не удалось сохранить список URL-ов файлов: %v", err)
@@ -294,12 +299,11 @@ func loadFileURLs() ([]repository.FileURLWithKeywords, error) {
 		}
 		return nil, err
 	}
-	
+
 	var files []repository.FileURLWithKeywords
 	if err := json.Unmarshal(data, &files); err != nil {
 		return nil, err
 	}
-	
+
 	return files, nil
 }
-

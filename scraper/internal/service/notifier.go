@@ -17,7 +17,7 @@ func SendNotificationsFromFile() error {
 	logger.Log.Info("════════════════════════════════════════")
 	logger.Log.Info("  НАЧАЛО ПРОЦЕССА ОТПРАВКИ УВЕДОМЛЕНИЙ")
 	logger.Log.Info("════════════════════════════════════════")
-	
+
 	filePath := filepath.Join(config.GetMatchedDir(), "file_urls.json")
 	logger.Log.Infof("Путь к файлу с URL: %s", filePath)
 
@@ -40,7 +40,7 @@ func SendNotificationsFromFile() error {
 	logger.Log.Infof("✓ Загружено %d файлов для отправки", len(files))
 
 	count := 0
-	
+
 	for i, file := range files {
 		logger.Log.Infof("────────────────────────────────────────")
 		logger.Log.Infof("Обработка файла %d/%d", i+1, len(files))
@@ -48,14 +48,15 @@ func SendNotificationsFromFile() error {
 		logger.Log.Infof("  → Ключевые слова: %v", file.Keywords)
 		logger.Log.Infof("  → Дата публикации: %s", file.PubDate)
 		logger.Log.Infof("  → Заголовок: %s", file.Title)
-		logger.Log.Infof("  → Описание: %s (длина: %d)", 
+		logger.Log.Infof("  → Описание: %s (длина: %d)",
 			truncateString(file.Description, 50), len(file.Description))
 
 		// Отправляем уведомление
 		logger.Log.Infof("  → Попытка отправки уведомления %d...", count+1)
 		if err := clients.SendFileURLWithKeywords(
-			file.URL, 
-			file.Keywords, 
+			file.ProjectURL,
+			file.URL,
+			file.Keywords,
 			file.PubDate,
 			file.Title,
 			file.Description,
@@ -66,7 +67,7 @@ func SendNotificationsFromFile() error {
 
 		count++
 		logger.Log.Infof("✅ Уведомление %d отправлено успешно", count)
-		
+
 		// Небольшая задержка между сообщениями, чтобы не превысить лимит Telegram API
 		logger.Log.Info("  → Задержка 1 секунда перед следующим сообщением...")
 		time.Sleep(1 * time.Second)
@@ -90,18 +91,17 @@ func truncateString(s string, maxLen int) string {
 // Использует параллельную обработку с отправкой уведомлений сразу
 func RunManualScan() (int, error) {
 	logger.Log.Info("🚀 Запуск ручного сканирования (параллельный режим)...")
-	
+
 	const rssURL = "https://regulation.gov.ru/api/public/Rss/"
-	
+
 	// Используем параллельную версию с отправкой уведомлений сразу
 	matchesCount, err := ScanRSSAndProjectsParallel(rssURL)
 	if err != nil {
 		logger.Log.Errorf("Ошибка сканирования RSS/проектов: %v", err)
 		return 0, err
 	}
-	
+
 	logger.Log.Infof("✅ Сканирование завершено. Найдено совпадений: %d. Уведомления отправлены сразу.", matchesCount)
-	
+
 	return matchesCount, nil
 }
-

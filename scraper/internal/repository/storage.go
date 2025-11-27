@@ -1,35 +1,35 @@
 package repository
 
 import (
-    "encoding/json"
-    "errors"
-    "io/fs"
-    "os"
-    "path/filepath"
+	"encoding/json"
+	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
 
-    "github.com/notenoughtea/law_scraper/internal/config"
-    "github.com/notenoughtea/law_scraper/internal/dto"
-    "github.com/notenoughtea/law_scraper/internal/logger"
+	"github.com/notenoughtea/law_scraper/internal/config"
+	"github.com/notenoughtea/law_scraper/internal/dto"
+	"github.com/notenoughtea/law_scraper/internal/logger"
 )
 
 func ensureDir(path string) error {
-    dir := filepath.Dir(path)
-    return os.MkdirAll(dir, 0o755)
+	dir := filepath.Dir(path)
+	return os.MkdirAll(dir, 0o755)
 }
 
 func SavePages(pages []dto.ListResponse) error {
-    storage := config.GetStoragePath()
-    if err := ensureDir(storage); err != nil {
-        return err
-    }
-    f, err := os.Create(storage)
-    if err != nil {
-        return err
-    }
-    defer f.Close()
-    enc := json.NewEncoder(f)
-    enc.SetIndent("", "  ")
-    return enc.Encode(pages)
+	storage := config.GetStoragePath()
+	if err := ensureDir(storage); err != nil {
+		return err
+	}
+	f, err := os.Create(storage)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	enc := json.NewEncoder(f)
+	enc.SetIndent("", "  ")
+	return enc.Encode(pages)
 }
 
 func LoadPages() ([]dto.ListResponse, error) {
@@ -51,6 +51,7 @@ func LoadPages() ([]dto.ListResponse, error) {
 // FileURLWithKeywords содержит URL файла и найденные в нём ключевые слова
 type FileURLWithKeywords struct {
 	URL         string
+	ProjectURL  string
 	Keywords    []string
 	PubDate     string
 	Title       string
@@ -63,7 +64,7 @@ func SaveFileURLs(files []FileURLWithKeywords) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	
+
 	// Сохраняем в JSON формате для удобства
 	path := filepath.Join(dir, "file_urls.json")
 	f, err := os.Create(path)
@@ -71,7 +72,7 @@ func SaveFileURLs(files []FileURLWithKeywords) error {
 		return err
 	}
 	defer f.Close()
-	
+
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ")
 	return enc.Encode(files)
@@ -90,5 +91,3 @@ func ClearPagesData() error {
 	logger.Log.Info("Файл pages.json успешно удален")
 	return nil
 }
-
-
